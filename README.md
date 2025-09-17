@@ -12,17 +12,36 @@ End-to-end data generation pipelines that (1) synthesize diverse voice-assistant
 
 ## Environments and Dependencies
 
-The project targets Python 3.10+. Install runtime dependencies with either `pip` or `uv`:
+### Quickstart (Conda + NVIDIA V100 GPUs)
+
+Use the provided helper to create a CUDA-enabled conda environment that has been validated on V100 hardware:
+
+```bash
+# create the environment (defaults to name "text2ui")
+bash scripts/create_conda_env.sh
+
+# re-activate it in new shells
+conda activate text2ui
+
+# authenticate with Hugging Face once per machine
+huggingface-cli login
+
+# configure accelerate for 8x V100 tensor-parallel inference
+accelerate config
+```
+
+The script installs Python 3.10, CUDA 11.8 builds of PyTorch, and the editable `text2ui` package (including all runtime dependencies from `pyproject.toml`).
+
+For environments without conda, you can still install dependencies manually:
 
 ```bash
 pip install -e .
 ```
 
-For large Qwen models you will additionally need:
+Additional requirements for large Qwen models:
 
 - CUDA-capable GPUs (tested target: 8x V100 32 GB)
-- PyTorch with CUDA (2.1 or newer recommended)
-- `accelerate` properly configured for tensor parallelism
+- Properly configured `accelerate` for tensor parallelism
 - Hugging Face access to the chosen Qwen models (`huggingface-cli login`)
 
 ## Running the Pipelines
@@ -32,10 +51,16 @@ For large Qwen models you will additionally need:
 Produces ~1000 conversational responses covering weather, calendar, music, reminders, knowledge, smart home, navigation, and productivity domains.
 
 ```bash
-# Configure your environment first
-export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
-accelerate config  # choose multi-GPU / DeepSpeed ZeRO-3 if needed
+# 1. Ensure the conda environment is active
+conda activate text2ui
 
+# 2. Select the GPUs to use (example: all 8 V100s)
+export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+
+# 3. (First run only) Configure accelerate for distributed inference
+accelerate config
+
+# 4. Launch the voice generation stage
 python scripts/generate_voice_dataset.py \
   --config configs/voice_pipeline.yaml \
   --model-name Qwen/Qwen2-72B-Instruct
@@ -55,6 +80,7 @@ Outputs land in `data/samples/voice_assistant_outputs.jsonl` (JSON Lines).
 Transforms each voice sample into a responsive HTML document (single card UI) using a Qwen code model.
 
 ```bash
+# Continue in the activated environment
 python scripts/generate_ui_dataset.py \
   --config configs/ui_pipeline.yaml \
   --model-name Qwen/Qwen2.5-Coder-32B-Instruct
@@ -74,12 +100,34 @@ Results are stored at `data/samples/voice_to_ui_components.jsonl`.
 Run both stages in sequence (makes the UI stage reuse the latest voice dataset automatically):
 
 ```bash
+# Run the stubbed CPU-friendly version (quick sanity check)
 python scripts/run_full_pipeline.py --use-stub
-# or for production inference
+
+# Or execute the full GPU pipeline after voice+UI configs are tuned
 python scripts/run_full_pipeline.py \
   --voice-config configs/voice_pipeline.yaml \
   --ui-config configs/ui_pipeline.yaml
 ```
+
+### End-to-End Command Reference
+
+For a clean V100 setup, run the following commands in order (customize paths/models as needed):
+
+```bash
+bash scripts/create_conda_env.sh text2ui
+conda activate text2ui
+huggingface-cli login
+accelerate config
+export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+python scripts/generate_voice_dataset.py \
+  --config configs/voice_pipeline.yaml \
+  --model-name Qwen/Qwen2-72B-Instruct
+python scripts/generate_ui_dataset.py \
+  --config configs/ui_pipeline.yaml \
+  --model-name Qwen/Qwen2.5-Coder-32B-Instruct
+```
+
+Use the final JSONL artifacts in `data/samples/` as inputs to your downstream tooling.
 
 ## Included Stub Dataset
 
