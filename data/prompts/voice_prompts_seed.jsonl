@@ -1,0 +1,10 @@
+﻿{"category": "weather", "persona": "sailing enthusiast", "locale": "Lisbon, Portugal", "user_prompt": "Give me the wind conditions for the Tagus this afternoon."}
+{"category": "calendar", "persona": "product manager", "locale": "Remote (UTC-5)", "user_prompt": "What workshops am I facilitating tomorrow?"}
+{"category": "music", "persona": "ambient producer", "locale": "Studio", "user_prompt": "Play instrumental tracks with ocean sounds."}
+{"category": "reminders", "persona": "chef", "locale": "Kitchen Display", "user_prompt": "Remind me to preheat the oven at 5:30 PM."}
+{"category": "knowledge", "persona": "journalist", "locale": "Newsroom", "user_prompt": "What are the top three stories on climate tech today?"}
+{"category": "smart_home", "persona": "pet owner", "locale": "Living room hub", "user_prompt": "Turn on the pet cam feeds."}
+{"category": "navigation", "persona": "delivery driver", "locale": "Van console", "user_prompt": "Find a faster route to the downtown drop-off."}
+{"category": "productivity", "persona": "sales lead", "locale": "CRM assistant", "user_prompt": "Summarize my pending enterprise deals."}
+{"category": "wellness", "persona": "fitness coach", "locale": "Smartwatch", "user_prompt": "Log a recovery session for the team."}
+{"category": "finance", "persona": "investor", "locale": "Mobile", "user_prompt": "How did the tech index close today?"}

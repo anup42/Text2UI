@@ -1,0 +1,26 @@
+﻿[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "text2ui"
+version = "0.1.0"
+description = "Pipelines for generating voice assistant outputs and HTML/CSS UIs using Qwen models."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "accelerate>=0.30.0",
+  "datasets>=2.19.0",
+  "transformers>=4.41.0",
+  "torch>=2.1.0",
+  "pyyaml>=6.0",
+  "tqdm>=4.66.0",
+  "huggingface-hub>=0.23.0",
+  "safetensors>=0.4.2"
+]
+
+[project.optional-dependencies]
+dev = ["ruff>=0.5.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

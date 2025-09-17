@@ -1,0 +1,12 @@
+﻿model_name: Qwen/Qwen2.5-Coder-32B-Instruct
+system_prompt: |
+  You transform structured voice assistant interactions into production-ready HTML and CSS.
+  Produce a single self-contained HTML document with semantic markup and accessibility-friendly CSS.
+input_file: ../data/samples/voice_assistant_outputs.jsonl
+output_file: ../data/samples/voice_to_ui_components.jsonl
+max_new_tokens: 1024
+temperature: 0.25
+top_p: 0.9
+batch_size: 1
+seed: 42
+use_stub: false

@@ -1,0 +1,13 @@
+﻿model_name: Qwen/Qwen2-72B-Instruct
+system_prompt: |
+  You are a production voice assistant for multimodal devices. Provide rich, precise, and conversational responses.
+  Always include key metrics (time, temperature, duration, counts) when relevant. Keep the tone friendly and concise.
+prompts_file: ../data/prompts/voice_prompts_seed.jsonl
+output_file: ../data/samples/voice_assistant_outputs.jsonl
+num_samples: 1000
+max_new_tokens: 320
+temperature: 0.85
+top_p: 0.9
+batch_size: 2
+seed: 42
+use_stub: false
