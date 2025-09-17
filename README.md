@@ -44,6 +44,28 @@ Additional requirements for large Qwen models:
 - Properly configured `accelerate` for tensor parallelism
 - Hugging Face access to the chosen Qwen models (`huggingface-cli login`)
 
+### Downloading the Qwen Checkpoints Locally
+
+Use the helper script to pre-download the models referenced in the pipelines.
+This is optional but avoids first-run latency when you launch either stage.
+
+```bash
+python scripts/download_qwen_models.py
+```
+
+By default the weights are stored in `models/qwen/<model-name>`. Override the
+location or the set of models as needed:
+
+```bash
+python scripts/download_qwen_models.py \
+  --output-dir /mnt/qwen \
+  --model Qwen/Qwen2-72B-Instruct \
+  --model Qwen/Qwen2.5-Coder-32B-Instruct
+```
+
+Ensure you have already authenticated with Hugging Face (`huggingface-cli
+login`) before running the script.
+
 ## Running the Pipelines
 
 ### 1. Voice Assistant Output Generation
