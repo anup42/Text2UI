@@ -40,20 +40,23 @@ pip install -e .
 
 ### Quickstart (Python virtualenv)
 
-Use the lightweight helper to bootstrap a virtual environment with editable package installs:
+Use the lightweight helper to bootstrap a virtual environment with editable installs and optional dev tools:
 
 ```bash
-# create the environment in .venv (override the directory if you prefer)
+# create the environment in .venv (auto-selects Python >=3.10)
 bash scripts/create_venv_env.sh .venv
 
-# optionally include development tools such as ruff
-bash scripts/create_venv_env.sh .venv --with-dev
+# specify a custom interpreter and include dev extras
+bash scripts/create_venv_env.sh .venv --python python3.11 --with-dev
+
+# show available flags
+bash scripts/create_venv_env.sh --help
 
 # activate it (PowerShell example)
 .\.venv\Scripts\Activate.ps1
 ```
 
-The script detects the right Python interpreter, upgrades pip inside the venv, installs `text2ui` in editable mode, and prints activation hints for Bash, PowerShell, and Command Prompt.
+The script validates the interpreter version (requires Python 3.10+), upgrades pip inside the venv, installs `text2ui` in editable mode, and prints activation hints for Bash, PowerShell, and Command Prompt.
 
 Additional requirements for large Qwen models:
 
