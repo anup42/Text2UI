@@ -42,12 +42,12 @@ if [[ -n "${CONDA_SOLVER:-}" ]]; then
   SOLVER_BIN=$CONDA_SOLVER
 elif command -v micromamba >/dev/null 2>&1; then
   SOLVER_BIN=$(command -v micromamba)
+elif [[ "$UNAME" == "Linux" ]]; then
+  SOLVER_BIN=$(bootstrap_micromamba)
 elif command -v mamba >/dev/null 2>&1; then
   SOLVER_BIN=$(command -v mamba)
 elif command -v conda >/dev/null 2>&1; then
   SOLVER_BIN=$(command -v conda)
-elif [[ "$UNAME" == "Linux" ]]; then
-  SOLVER_BIN=$(bootstrap_micromamba)
 else
   echo "[ERROR] Unable to locate a conda-compatible solver. Install conda, mamba, or micromamba." >&2
   exit 1
