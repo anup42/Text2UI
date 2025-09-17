@@ -30,7 +30,7 @@ huggingface-cli login
 accelerate config
 ```
 
-The script installs Python 3.10, CUDA 11.8 builds of PyTorch, and the editable `text2ui` package (including all runtime dependencies from `pyproject.toml`).
+The script installs Python 3.10, CUDA 11.8 builds of PyTorch, `cmake>=3.25`, and the editable `text2ui` package (including all runtime dependencies from `pyproject.toml`).
 
 For environments without conda, you can still install dependencies manually:
 
@@ -56,7 +56,7 @@ bash scripts/create_venv_env.sh --help
 .\.venv\Scripts\Activate.ps1
 ```
 
-The script validates the interpreter version (requires Python 3.10+), upgrades pip inside the venv, installs `text2ui` in editable mode, and prints activation hints for Bash, PowerShell, and Command Prompt.
+The script validates the interpreter version (requires Python 3.10+), ensures `cmake>=3.25` is installed, upgrades pip inside the venv, installs `text2ui` in editable mode, and prints activation hints for Bash, PowerShell, and Command Prompt.
 
 Additional requirements for large Qwen models:
 

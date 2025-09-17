@@ -154,6 +154,10 @@ fi
 echo "[INFO] Upgrading pip inside the virtual environment..."
 "$VENV_PYTHON" -m pip install --upgrade pip
 
+# Ensure build tooling is present for packages that require modern CMake.
+echo "[INFO] Installing cmake>=3.25 inside the virtual environment..."
+"$VENV_PYTHON" -m pip install "cmake>=3.25"
+
 echo "[INFO] Installing Text2UI package in editable mode..."
 "$VENV_PYTHON" -m pip install -e .
 

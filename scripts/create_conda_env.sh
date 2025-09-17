@@ -89,6 +89,10 @@ else
   "$SOLVER_BIN" create -y -n "$ENV_NAME" "python=${PYTHON_VERSION}" "${CREATE_CHANNELS[@]}"
 fi
 
+# Ensure modern build tooling for packages that require native extensions.
+echo "[INFO] Installing build tooling (cmake >= 3.25)..."
+"$SOLVER_BIN" install -y -n "$ENV_NAME" "cmake>=3.25" "${CREATE_CHANNELS[@]}"
+
 DEFAULT_GPU_TARGET=0
 if [[ "$UNAME" == "Linux" ]]; then
   DEFAULT_GPU_TARGET=1
