@@ -80,6 +80,29 @@ resolve_python_path() {
   fi
 }
 
+strip_outer_quotes() {
+  local value=$1
+  while [[ ${#value} -ge 2 ]]; do
+    local first=${value:0:1}
+    local last=${value: -1}
+    if [[ ( "$first" == "'" && "$last" == "'" ) || ( "$first" == '"' && "$last" == '"' ) ]]; then
+      value=${value:1:-1}
+    else
+      break
+    fi
+  done
+  printf '%s' "$value"
+}
+
+if [[ -n "$PYTHON_BIN" ]]; then
+  PYTHON_BIN=$(strip_outer_quotes "$PYTHON_BIN")
+fi
+
+if [[ -z "$PYTHON_BIN" && $EXPLICIT_PYTHON -eq 1 ]]; then
+  echo "[WARN] Empty interpreter supplied via --python/PYTHON_BIN; falling back to auto-detected Python 3.10+."
+  EXPLICIT_PYTHON=0
+fi
+
 if [[ -n "$PYTHON_BIN" ]]; then
   if ! PYTHON_BIN=$(resolve_python_path "$PYTHON_BIN"); then
     echo "[ERROR] Specified Python interpreter '$PYTHON_BIN' is not executable." >&2
