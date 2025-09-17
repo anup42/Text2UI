@@ -38,6 +38,23 @@ For environments without conda, you can still install dependencies manually:
 pip install -e .
 ```
 
+### Quickstart (Python virtualenv)
+
+Use the lightweight helper to bootstrap a virtual environment with editable package installs:
+
+```bash
+# create the environment in .venv (override the directory if you prefer)
+bash scripts/create_venv_env.sh .venv
+
+# optionally include development tools such as ruff
+bash scripts/create_venv_env.sh .venv --with-dev
+
+# activate it (PowerShell example)
+.\.venv\Scripts\Activate.ps1
+```
+
+The script detects the right Python interpreter, upgrades pip inside the venv, installs `text2ui` in editable mode, and prints activation hints for Bash, PowerShell, and Command Prompt.
+
 Additional requirements for large Qwen models:
 
 - CUDA-capable GPUs (tested target: 8x V100 32 GB)
