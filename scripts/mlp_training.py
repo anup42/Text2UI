@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-"""Simulate a CPU-only training job for environments with scheduled resources.
-
-The script mimics the console output of a deep learning training loop without
-actually requiring GPUs.  It performs small NumPy computations on the CPU so
-that the job scheduler sees real activity, while staying lightweight.
-"""
 
 from __future__ import annotations
 
@@ -16,9 +10,6 @@ from typing import Iterator, Tuple
 
 import numpy as np
 
-# Make sure no CUDA devices are visible to downstream libraries even if the
-# host machine has GPUs available.  This must be set before torch/tensorflow
-# (if they were ever imported) to guarantee CPU-only execution.
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 
 
@@ -70,13 +61,11 @@ def run_epoch(cfg: TrainingConfig, state: TrainingState, epoch: int) -> float:
         predictions = np.tanh(inputs @ state.weights + state.bias)
         loss = mse_loss(predictions, targets)
 
-        # Simple gradient-like update to make the loss fluctuate but trend down.
         grad_w = (inputs.T @ (predictions - targets)) / cfg.batch_size
         grad_b = np.mean(predictions - targets, axis=0)
         state.weights -= cfg.learning_rate * grad_w
         state.bias -= cfg.learning_rate * grad_b
 
-        # Introduce a small pause so job schedulers see sustained CPU usage.
         time.sleep(cfg.sleep)
 
         losses.append(loss)
@@ -91,9 +80,6 @@ def run_epoch(cfg: TrainingConfig, state: TrainingState, epoch: int) -> float:
 
 
 def maybe_save_checkpoint(epoch: int, loss: float) -> None:
-    # In a real training job you would persist model parameters here.  We only
-    # simulate the behavior with a message so that downstream monitoring sees
-    # progress updates.
     if epoch % 2 == 0:
         print(f"Checkpoint saved for epoch {epoch:02d} (loss={loss:.4f})")
 
