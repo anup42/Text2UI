@@ -7,6 +7,7 @@ set -euo pipefail
 
 ENV_NAME=${1:-text2ui}
 PYTHON_VERSION=${PYTHON_VERSION:-3.10}
+SKIP_DEPS=${TEXT2UI_ENV_SETUP_SKIP_DEPS:-0}
 
 UNAME=$(uname -s 2>/dev/null || echo "")
 
@@ -89,32 +90,36 @@ else
   "$SOLVER_BIN" create -y -n "$ENV_NAME" "python=${PYTHON_VERSION}" "${CREATE_CHANNELS[@]}"
 fi
 
-# Ensure modern build tooling for packages that require native extensions.
-echo "[INFO] Installing build tooling (cmake >= 3.25)..."
-"$SOLVER_BIN" install -y -n "$ENV_NAME" "cmake>=3.25" "${CREATE_CHANNELS[@]}"
-
-DEFAULT_GPU_TARGET=0
-if [[ "$UNAME" == "Linux" ]]; then
-  DEFAULT_GPU_TARGET=1
-fi
-if [[ "${FORCE_GPU_PACKAGES:-}" == "1" ]]; then
-  DEFAULT_GPU_TARGET=1
-elif [[ "${FORCE_GPU_PACKAGES:-}" == "0" ]]; then
-  DEFAULT_GPU_TARGET=0
-fi
-
-if (( DEFAULT_GPU_TARGET )); then
-  echo "[INFO] Installing PyTorch with CUDA 11.8 support (validated on NVIDIA V100)..."
-  "$SOLVER_BIN" install -y -n "$ENV_NAME" pytorch torchvision torchaudio pytorch-cuda=11.8 "${GPU_CHANNELS[@]}"
+if (( SKIP_DEPS )); then
+  echo "[INFO] Skipping dependency installation due to TEXT2UI_ENV_SETUP_SKIP_DEPS=${SKIP_DEPS}."
 else
-  echo "[INFO] Installing PyTorch (CPU build) via conda-forge..."
-  "$SOLVER_BIN" install -y -n "$ENV_NAME" pytorch torchvision torchaudio cpuonly "${CPU_CHANNELS[@]}"
-fi
+  # Ensure modern build tooling for packages that require native extensions.
+  echo "[INFO] Installing build tooling (cmake >= 3.25)..."
+  "$SOLVER_BIN" install -y -n "$ENV_NAME" "cmake>=3.25" "${CREATE_CHANNELS[@]}"
 
-# Install repository dependencies (editable install for development convenience).
-echo "[INFO] Installing Text2UI python dependencies..."
-"$SOLVER_BIN" run -n "$ENV_NAME" python -m pip install --upgrade pip
-"$SOLVER_BIN" run -n "$ENV_NAME" python -m pip install -e .
+  DEFAULT_GPU_TARGET=0
+  if [[ "$UNAME" == "Linux" ]]; then
+    DEFAULT_GPU_TARGET=1
+  fi
+  if [[ "${FORCE_GPU_PACKAGES:-}" == "1" ]]; then
+    DEFAULT_GPU_TARGET=1
+  elif [[ "${FORCE_GPU_PACKAGES:-}" == "0" ]]; then
+    DEFAULT_GPU_TARGET=0
+  fi
+
+  if (( DEFAULT_GPU_TARGET )); then
+    echo "[INFO] Installing PyTorch with CUDA 11.8 support (validated on NVIDIA V100)..."
+    "$SOLVER_BIN" install -y -n "$ENV_NAME" pytorch torchvision torchaudio pytorch-cuda=11.8 "${GPU_CHANNELS[@]}"
+  else
+    echo "[INFO] Installing PyTorch (CPU build) via conda-forge..."
+    "$SOLVER_BIN" install -y -n "$ENV_NAME" pytorch torchvision torchaudio cpuonly "${CPU_CHANNELS[@]}"
+  fi
+
+  # Install repository dependencies (editable install for development convenience).
+  echo "[INFO] Installing Text2UI python dependencies..."
+  "$SOLVER_BIN" run -n "$ENV_NAME" python -m pip install --upgrade pip
+  "$SOLVER_BIN" run -n "$ENV_NAME" python -m pip install -e .
+fi
 
 if [[ "$SOLVER_NAME" == "micromamba" ]]; then
   ACTIVATE_HINT="micromamba activate ${ENV_NAME}"
