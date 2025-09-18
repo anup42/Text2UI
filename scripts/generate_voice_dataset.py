@@ -1,5 +1,6 @@
 ﻿import argparse
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -10,8 +11,20 @@ except ImportError:  # pragma: no cover
     torch = None  # type: ignore
     dist = None  # type: ignore
 
+try:
+    from text2ui.voice_pipeline import DistributedContext as _DistributedContext, run_voice_pipeline
+except (ImportError, AttributeError):
+    from text2ui.voice_pipeline import run_voice_pipeline  # type: ignore
+
+    @dataclass
+    class _DistributedContext:  # type: ignore
+        rank: int
+        world_size: int
+        local_rank: int
+
+DistributedContext = _DistributedContext
+
 from text2ui.config import VoiceGenerationConfig, load_voice_config
-from text2ui.voice_pipeline import DistributedContext, run_voice_pipeline
 
 
 def _resolve_cli_path(path: Path) -> Path:
