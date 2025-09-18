@@ -48,6 +48,10 @@ class DistributedContext:
     local_rank: int
 
 
+# Backwards compatibility alias for older imports (typo preserved)
+DisctributedContext = DistributedContext
+
+
 def _build_messages(prompt: VoicePrompt, system_prompt: str) -> List[Dict[str, str]]:
     user_message = (
         f"Persona: {prompt.persona}\n"
