@@ -11,7 +11,13 @@ except ImportError:  # pragma: no cover
     dist = None  # type: ignore
 
 from text2ui.config import VoiceGenerationConfig, load_voice_config
-from text2ui.voice_pipeline import DistributedContext, run_voice_pipeline
+try:
+    from text2ui.voice_pipeline import DistributedContext, run_voice_pipeline
+except ImportError:  # pragma: no cover - compatibility with older exports
+    from text2ui.voice_pipeline import (  # type: ignore
+        DisctributedContext as DistributedContext,
+        run_voice_pipeline,
+    )
 
 
 def _resolve_cli_path(path: Path) -> Path:
