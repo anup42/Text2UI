@@ -13,6 +13,7 @@ ENV_DIR=".venv"
 INSTALL_DEV=0
 PYTHON_BIN=${PYTHON_BIN:-}
 EXPLICIT_PYTHON=0
+SKIP_PIP=${TEXT2UI_ENV_SETUP_SKIP_PIP:-0}
 [[ -n "$PYTHON_BIN" ]] && EXPLICIT_PYTHON=1
 
 while [[ $# -gt 0 ]]; do
@@ -151,19 +152,26 @@ if ! check_python_version "$VENV_PYTHON"; then
   exit 1
 fi
 
-echo "[INFO] Upgrading pip inside the virtual environment..."
-"$VENV_PYTHON" -m pip install --upgrade pip
+if (( SKIP_PIP )); then
+  echo "[INFO] Skipping pip-related installation steps due to TEXT2UI_ENV_SETUP_SKIP_PIP=${SKIP_PIP}."
+  if (( INSTALL_DEV )); then
+    echo "[WARN] Development extras requested but pip steps are skipped; dev dependencies were not installed."
+  fi
+else
+  echo "[INFO] Upgrading pip inside the virtual environment..."
+  "$VENV_PYTHON" -m pip install --upgrade pip
 
-# Ensure build tooling is present for packages that require modern CMake.
-echo "[INFO] Installing cmake>=3.25 inside the virtual environment..."
-"$VENV_PYTHON" -m pip install "cmake>=3.25"
+  # Ensure build tooling is present for packages that require modern CMake.
+  echo "[INFO] Installing cmake>=3.25 inside the virtual environment..."
+  "$VENV_PYTHON" -m pip install "cmake>=3.25"
 
-echo "[INFO] Installing Text2UI package in editable mode..."
-"$VENV_PYTHON" -m pip install -e .
+  echo "[INFO] Installing Text2UI package in editable mode..."
+  "$VENV_PYTHON" -m pip install -e .
 
-if (( INSTALL_DEV )); then
-  echo "[INFO] Installing development extras..."
-  "$VENV_PYTHON" -m pip install .[dev]
+  if (( INSTALL_DEV )); then
+    echo "[INFO] Installing development extras..."
+    "$VENV_PYTHON" -m pip install .[dev]
+  fi
 fi
 
 POSIX_ACTIVATE="source ${ENV_DIR}/bin/activate"
