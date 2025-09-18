@@ -10,6 +10,7 @@ PYTHON_VERSION=${PYTHON_VERSION:-3.10}
 SKIP_DEPS=${TEXT2UI_ENV_SETUP_SKIP_DEPS:-0}
 
 UNAME=$(uname -s 2>/dev/null || echo "")
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 cleanup_paths=()
 cleanup() {
@@ -39,8 +40,17 @@ bootstrap_micromamba() {
 }
 
 SOLVER_BIN=""
+if [[ -z "${CONDA_SOLVER:-}" ]]; then
+  if [[ -x "./micromamba" ]]; then
+    SOLVER_BIN=$(realpath ./micromamba)
+  elif [[ -x "${SCRIPT_DIR}/micromamba" ]]; then
+    SOLVER_BIN=$(realpath "${SCRIPT_DIR}/micromamba")
+  fi
+fi
 if [[ -n "${CONDA_SOLVER:-}" ]]; then
   SOLVER_BIN=$CONDA_SOLVER
+elif [[ -n "$SOLVER_BIN" ]]; then
+  :
 elif command -v micromamba >/dev/null 2>&1; then
   SOLVER_BIN=$(command -v micromamba)
 elif [[ "$UNAME" == "Linux" ]]; then
