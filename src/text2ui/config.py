@@ -17,7 +17,7 @@ class VoiceGenerationConfig:
     max_new_tokens: int = 256
     temperature: float = 0.85
     top_p: float = 0.9
-    batch_size: int = 2
+    batch_size: int = 8
     seed: int = 42
     use_stub: bool = False
 
