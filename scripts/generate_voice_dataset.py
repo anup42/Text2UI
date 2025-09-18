@@ -1,5 +1,6 @@
 ﻿import argparse
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -11,7 +12,17 @@ except ImportError:  # pragma: no cover
     dist = None  # type: ignore
 
 from text2ui.config import VoiceGenerationConfig, load_voice_config
-from text2ui.voice_pipeline import DistributedContext, run_voice_pipeline
+
+try:
+    from text2ui.voice_pipeline import DistributedContext, run_voice_pipeline
+except ImportError:  # pragma: no cover - fallback for older installations
+    from text2ui.voice_pipeline import run_voice_pipeline
+
+    @dataclass
+    class DistributedContext:
+        rank: int
+        world_size: int
+        local_rank: int
 
 
 def _resolve_cli_path(path: Path) -> Path:
