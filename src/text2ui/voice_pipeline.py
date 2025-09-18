@@ -40,6 +40,8 @@ from .prompt_bank import VoicePrompt, generate_voice_queries
 from .stub_generators import stub_voice_response
 from .utils import ensure_parent_dir, read_jsonl
 
+__all__ = ['DistributedContext', 'DisctributedContext', 'run_voice_pipeline']
+
 
 @dataclass
 class DistributedContext:
