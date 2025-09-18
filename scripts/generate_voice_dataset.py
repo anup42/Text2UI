@@ -1,12 +1,41 @@
 ﻿import argparse
+import os
 from pathlib import Path
+from typing import Optional
+
+try:
+    import torch
+    import torch.distributed as dist
+except ImportError:  # pragma: no cover
+    torch = None  # type: ignore
+    dist = None  # type: ignore
 
 from text2ui.config import VoiceGenerationConfig, load_voice_config
-from text2ui.voice_pipeline import run_voice_pipeline
+from text2ui.voice_pipeline import DistributedContext, run_voice_pipeline
 
 
 def _resolve_cli_path(path: Path) -> Path:
     return path.expanduser().resolve()
+
+
+def _setup_distributed() -> tuple[Optional[DistributedContext], bool]:
+    if torch is None or dist is None or not dist.is_available():
+        return None, False
+    if "RANK" not in os.environ or "WORLD_SIZE" not in os.environ:
+        return None, False
+    initialized = False
+    if not dist.is_initialized():
+        backend = "nccl" if torch.cuda.is_available() else "gloo"
+        dist.init_process_group(backend=backend)
+        initialized = True
+    rank = dist.get_rank()
+    world_size = dist.get_world_size()
+    local_rank = int(os.environ.get("LOCAL_RANK", rank))
+    if torch.cuda.is_available():
+        torch.cuda.set_device(local_rank)
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+    return DistributedContext(rank=rank, world_size=world_size, local_rank=local_rank), initialized
 
 
 def main() -> None:
@@ -28,8 +57,16 @@ def main() -> None:
     if args.use_stub:
         config.use_stub = True
 
-    results = run_voice_pipeline(config)
-    print(f"Generated {len(results)} samples -> {config.output_file}")
+    dist_ctx, initialized = _setup_distributed()
+    try:
+        results = run_voice_pipeline(config, dist_ctx=dist_ctx)
+        if dist_ctx and dist_ctx.rank != 0:
+            return
+        print(f"Generated {len(results)} samples -> {config.output_file}")
+    finally:
+        if initialized and dist is not None and dist.is_initialized():
+            dist.barrier()
+            dist.destroy_process_group()
 
 
 if __name__ == "__main__":
