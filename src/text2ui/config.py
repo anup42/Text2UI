@@ -7,6 +7,13 @@ from typing import Any, Dict
 import yaml
 
 
+def _normalize_path(candidate: Path, root: Path) -> Path:
+    expanded = candidate.expanduser()
+    if expanded.is_absolute():
+        return expanded.resolve()
+    return (root / expanded).resolve()
+
+
 @dataclass
 class VoiceGenerationConfig:
     model_name: str
@@ -37,11 +44,12 @@ class UIGenerationConfig:
 
 
 def _path(value: Any, root: Path) -> Path:
-    return value if isinstance(value, Path) else (root / value).resolve()
+    candidate = value if isinstance(value, Path) else Path(value)
+    return _normalize_path(candidate, root)
 
 
 def load_voice_config(path: str | Path) -> VoiceGenerationConfig:
-    file_path = Path(path)
+    file_path = Path(path).expanduser().resolve()
     payload: Dict[str, Any] = yaml.safe_load(file_path.read_text(encoding="utf-8"))
     payload["prompts_file"] = _path(payload["prompts_file"], file_path.parent)
     payload["output_file"] = _path(payload["output_file"], file_path.parent)
@@ -49,7 +57,7 @@ def load_voice_config(path: str | Path) -> VoiceGenerationConfig:
 
 
 def load_ui_config(path: str | Path) -> UIGenerationConfig:
-    file_path = Path(path)
+    file_path = Path(path).expanduser().resolve()
     payload: Dict[str, Any] = yaml.safe_load(file_path.read_text(encoding="utf-8"))
     payload["input_file"] = _path(payload["input_file"], file_path.parent)
     payload["output_file"] = _path(payload["output_file"], file_path.parent)
