@@ -83,6 +83,11 @@ python scripts/download_qwen_models.py \
   --model Qwen/Qwen2.5-Coder-32B-Instruct
 ```
 
+For the fastest results, increase `--max-workers` to saturate your bandwidth and
+ensure the optional [`hf_transfer`](https://github.com/huggingface/hf-transfer)
+package is installed. The script will enable the accelerated transfer backend
+automatically when available, or you can force it on with `--hf-transfer`.
+
 Ensure you have already authenticated with Hugging Face (`huggingface-cli
 login`) before running the script.
 
