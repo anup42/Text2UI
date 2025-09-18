@@ -1,6 +1,5 @@
 ﻿import argparse
 import os
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -12,17 +11,7 @@ except ImportError:  # pragma: no cover
     dist = None  # type: ignore
 
 from text2ui.config import VoiceGenerationConfig, load_voice_config
-
-try:
-    from text2ui.voice_pipeline import DistributedContext, run_voice_pipeline
-except ImportError:  # pragma: no cover - fallback for older installations
-    from text2ui.voice_pipeline import run_voice_pipeline
-
-    @dataclass
-    class DistributedContext:
-        rank: int
-        world_size: int
-        local_rank: int
+from text2ui.voice_pipeline import DistributedContext, run_voice_pipeline
 
 
 def _resolve_cli_path(path: Path) -> Path:
@@ -49,6 +38,15 @@ def _setup_distributed() -> tuple[Optional[DistributedContext], bool]:
     return DistributedContext(rank=rank, world_size=world_size, local_rank=local_rank), initialized
 
 
+def _run_pipeline(config: VoiceGenerationConfig, dist_ctx: Optional[DistributedContext]):
+    try:
+        return run_voice_pipeline(config, dist_ctx=dist_ctx)
+    except TypeError as exc:
+        if "unexpected keyword argument 'dist_ctx'" in str(exc):
+            return run_voice_pipeline(config)
+        raise
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate voice assistant outputs with Qwen models.")
     parser.add_argument("--config", type=Path, default=Path("configs/voice_pipeline.yaml"), help="Path to YAML config file")
@@ -70,7 +68,7 @@ def main() -> None:
 
     dist_ctx, initialized = _setup_distributed()
     try:
-        results = run_voice_pipeline(config, dist_ctx=dist_ctx)
+        results = _run_pipeline(config, dist_ctx)
         if dist_ctx and dist_ctx.rank != 0:
             return
         print(f"Generated {len(results)} samples -> {config.output_file}")
