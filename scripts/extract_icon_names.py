@@ -6,16 +6,14 @@ Example (8x V100 with torchrun):
     --images-dir data/screenshots/icons \
     --output-file outputs/icon_labels.jsonl
 
-This script expects each screenshot to already contain bounding boxes with
-numeric IDs (1..N) rendered on the image. The model responds with lines in the
-form "<id>: <icon name>" for every labelled box.
+Screenshots must already contain bounding boxes + numeric IDs (1..N).
+The model returns lines like "1: delete" for each ID.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Optional
@@ -23,14 +21,7 @@ from typing import Iterable, List, Optional
 import torch
 from PIL import Image
 from tqdm import tqdm
-from transformers import AutoProcessor
-
-try:
-    from transformers import Qwen2VLForConditionalGeneration
-except ImportError:  # pragma: no cover
-    raise ImportError(
-        "transformers>=4.38.0 is required for Qwen2.5 VL models."
-    )
+from transformers import AutoModelForVision2Seq, AutoProcessor
 
 
 DEFAULT_PROMPT = (
@@ -45,7 +36,7 @@ DEFAULT_PROMPT = (
 class GenerationConfig:
     model_name: str = "Qwen/Qwen2.5-VL-72B-Instruct"
     trust_remote_code: bool = True
-    torch_dtype: str = "bfloat16"
+    dtype: str = "bfloat16"
     max_new_tokens: int = 256
     temperature: float = 0.1
     top_p: float = 0.9
@@ -60,7 +51,7 @@ def _list_images(images_dir: Optional[Path], image_paths: List[Path]) -> List[Pa
             if path.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp", ".bmp"}:
                 collected.append(path)
     collected.extend(image_paths)
-    unique = []
+    unique: List[Path] = []
     seen = set()
     for path in collected:
         resolved = path.resolve()
@@ -73,8 +64,7 @@ def _list_images(images_dir: Optional[Path], image_paths: List[Path]) -> List[Pa
 def _load_images(paths: Iterable[Path]) -> List[Image.Image]:
     images: List[Image.Image] = []
     for path in paths:
-        image = Image.open(path).convert("RGB")
-        images.append(image)
+        images.append(Image.open(path).convert("RGB"))
     return images
 
 
@@ -83,11 +73,19 @@ def _prepare_messages(prompt: str, image: Image.Image) -> List[dict]:
         {
             "role": "user",
             "content": [
-                {"type": "text", "text": prompt},
                 {"type": "image", "image": image},
+                {"type": "text", "text": prompt},
             ],
         }
     ]
+
+
+def _resolve_dtype(dtype: str) -> torch.dtype:
+    if dtype == "float16":
+        return torch.float16
+    if dtype == "float32":
+        return torch.float32
+    return torch.bfloat16
 
 
 def generate_icon_names(
@@ -103,18 +101,15 @@ def generate_icon_names(
         trust_remote_code=config.trust_remote_code,
         use_fast=config.use_fast_processor,
     )
-    dtype = torch.bfloat16 if config.torch_dtype == "bfloat16" and torch.cuda.is_available() else (
-        torch.float16 if config.torch_dtype == "float16" else torch.float32
-    )
-    model = Qwen2VLForConditionalGeneration.from_pretrained(
+    torch_dtype = _resolve_dtype(config.dtype)
+    model = AutoModelForVision2Seq.from_pretrained(
         config.model_name,
         trust_remote_code=config.trust_remote_code,
-        torch_dtype=dtype,
+        dtype=torch_dtype,
         device_map=config.device_map,
     )
 
     output_file.parent.mkdir(parents=True, exist_ok=True)
-
     progress = tqdm(total=len(image_paths), desc="screenshots", unit="img") if not quiet else None
 
     with output_file.open("w", encoding="utf-8") as handle:
@@ -122,31 +117,35 @@ def generate_icon_names(
             batch_paths = image_paths[start : start + batch_size]
             images = _load_images(batch_paths)
             messages_batch = [_prepare_messages(prompt, image) for image in images]
-            inputs = processor.apply_chat_template(
-                messages_batch,
-                add_generation_prompt=True,
-                tokenize=True,
+
+            chat_prompts = [
+                processor.apply_chat_template(
+                    messages,
+                    tokenize=False,
+                    add_generation_prompt=True,
+                )
+                for messages in messages_batch
+            ]
+
+            inputs = processor(
+                text=chat_prompts,
+                images=images,
                 return_tensors="pt",
             )
-            vision_inputs = processor(images=images, return_tensors="pt")
-            pixel_values = vision_inputs.get("pixel_values")
-            if pixel_values is None:
-                raise ValueError("Processor did not return pixel_values; ensure the checkpoint supports vision inputs.")
-            inputs = {key: value.to(model.device) for key, value in inputs.items() if value is not None}
-            pixel_values = pixel_values.to(model.device, dtype=dtype)
+            inputs = {key: value.to(model.device, dtype=torch_dtype if value.dtype.is_floating_point else None)
+                      for key, value in inputs.items()}
 
             with torch.no_grad():
-                outputs = model.generate(
+                generated_ids = model.generate(
                     **inputs,
-                    pixel_values=pixel_values,
                     max_new_tokens=config.max_new_tokens,
                     temperature=config.temperature,
                     top_p=config.top_p,
                 )
 
-            for path, output_ids in zip(batch_paths, outputs):
-                generated_text = processor.decode(output_ids, skip_special_tokens=True).strip()
-                record = {"image": str(path), "icon_names": generated_text}
+            decoded = processor.batch_decode(generated_ids, skip_special_tokens=True)
+            for path, text in zip(batch_paths, decoded):
+                record = {"image": str(path), "icon_names": text.strip()}
                 handle.write(json.dumps(record, ensure_ascii=False))
                 handle.write("\n")
                 if progress is not None:
@@ -159,7 +158,7 @@ def generate_icon_names(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Extract icon names from screenshots using Qwen VL.")
     parser.add_argument("--images-dir", type=Path, help="Directory containing screenshots", default=None)
-    parser.add_argument("--image", type=Path, action="append", default=[], help="Explicit image path (can repeat)")
+    parser.add_argument("--image", type=Path, action="append", default=[], help="Explicit image path (repeatable)")
     parser.add_argument("--output-file", type=Path, required=True, help="Path to JSONL output")
     parser.add_argument("--model-name", default="Qwen/Qwen2.5-VL-72B-Instruct", help="Model identifier")
     parser.add_argument("--batch-size", type=int, default=1, help="Number of screenshots per generation batch")
