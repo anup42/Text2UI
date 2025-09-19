@@ -50,6 +50,7 @@ class GenerationConfig:
     temperature: float = 0.1
     top_p: float = 0.9
     device_map: str = "auto"
+    use_fast_processor: bool = False
 
 
 def _list_images(images_dir: Optional[Path], image_paths: List[Path]) -> List[Path]:
@@ -100,8 +101,11 @@ def generate_icon_names(
     processor = AutoProcessor.from_pretrained(
         config.model_name,
         trust_remote_code=config.trust_remote_code,
+        use_fast=config.use_fast_processor,
     )
-    dtype = torch.bfloat16 if config.torch_dtype == "bfloat16" and torch.cuda.is_available() else torch.float16
+    dtype = torch.bfloat16 if config.torch_dtype == "bfloat16" and torch.cuda.is_available() else (
+        torch.float16 if config.torch_dtype == "float16" else torch.float32
+    )
     model = Qwen2VLForConditionalGeneration.from_pretrained(
         config.model_name,
         trust_remote_code=config.trust_remote_code,
@@ -124,13 +128,11 @@ def generate_icon_names(
                 tokenize=True,
                 return_tensors="pt",
             )
-            pixel_values = processor(images=images, return_tensors="pt").pixel_values
-            inputs = {"input_ids": inputs["input_ids"], "attention_mask": inputs.get("attention_mask")}
-            inputs = {
-                key: value.to(model.device)
-                for key, value in inputs.items()
-                if value is not None
-            }
+            vision_inputs = processor(images=images, return_tensors="pt")
+            pixel_values = vision_inputs.get("pixel_values")
+            if pixel_values is None:
+                raise ValueError("Processor did not return pixel_values; ensure the checkpoint supports vision inputs.")
+            inputs = {key: value.to(model.device) for key, value in inputs.items() if value is not None}
             pixel_values = pixel_values.to(model.device, dtype=dtype)
 
             with torch.no_grad():
@@ -167,6 +169,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--top-p", type=float, default=0.9)
     parser.add_argument("--dtype", choices=["bfloat16", "float16", "float32"], default="bfloat16")
     parser.add_argument("--device-map", default="auto", help="Device map for model loading (e.g., auto)")
+    parser.add_argument("--use-fast-processor", action="store_true", help="Opt-in to fast vision processor")
     parser.add_argument("--quiet", action="store_true", help="Suppress progress bar")
     return parser.parse_args()
 
@@ -185,6 +188,7 @@ def main() -> None:
         temperature=args.temperature,
         top_p=args.top_p,
         device_map=args.device_map,
+        use_fast_processor=args.use_fast_processor,
     )
 
     generate_icon_names(
