@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """Batch icon name extraction using Qwen VL models.
 
 Example (8x V100 with torchrun):
@@ -22,6 +22,7 @@ import torch
 from PIL import Image
 from tqdm import tqdm
 from transformers import AutoModelForImageTextToText, AutoProcessor
+from torch.backends.cuda import sdp_kernel
 
 try:
     from transformers import BitsAndBytesConfig  # type: ignore
@@ -250,3 +251,14 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+
+
+
+
+
+
+
+
+
