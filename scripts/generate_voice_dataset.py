@@ -1,4 +1,5 @@
 ﻿import argparse
+import sys
 import time
 from pathlib import Path
 
@@ -16,12 +17,17 @@ def _resolve_cli_path(path: Path) -> Path:
 
 
 def _prepare_writer():
-    if SummaryWriter is None:
-        raise RuntimeError("TensorBoard logging requested but torch.utils.tensorboard is unavailable.")
+    writer_cls = SummaryWriter
+    if writer_cls is None:
+        try:  # pragma: no cover - optional dependency
+            from tensorboardX import SummaryWriter as TensorboardXWriter  # type: ignore
+        except ImportError:
+            return None, None
+        writer_cls = TensorboardXWriter
     root = Path("/tensorboard")
     root.mkdir(parents=True, exist_ok=True)
     run_dir = root / f"voice_{int(time.time())}"
-    writer = SummaryWriter(log_dir=str(run_dir))
+    writer = writer_cls(log_dir=str(run_dir))
     step = 0
 
     def add_batch(records):
@@ -57,6 +63,11 @@ def main() -> None:
     batch_callback = None
     if args.mlp:
         writer, batch_callback = _prepare_writer()
+        if writer is None or batch_callback is None:
+            print(
+                "[WARN] TensorBoard logging requested but not available. Install torch.utils.tensorboard or tensorboardX.",
+                file=sys.stderr,
+            )
 
     try:
         results = run_voice_pipeline(config, batch_callback=batch_callback)
