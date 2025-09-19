@@ -23,6 +23,11 @@ from PIL import Image
 from tqdm import tqdm
 from transformers import AutoModelForImageTextToText, AutoProcessor
 
+try:
+    from transformers import BitsAndBytesConfig  # type: ignore
+except ImportError:  # pragma: no cover
+    BitsAndBytesConfig = None  # type: ignore
+
 
 DEFAULT_PROMPT = (
     "You are an expert UI icon identifier. For the screenshot, each icon is "
@@ -42,6 +47,9 @@ class GenerationConfig:
     top_p: float = 0.9
     device_map: str = "auto"
     use_fast_processor: bool = False
+    load_in_8bit: bool = False
+    load_in_4bit: bool = False
+    use_cache: bool = False
 
 
 def _list_images(images_dir: Optional[Path], image_paths: List[Path]) -> List[Path]:
@@ -88,6 +96,23 @@ def _resolve_dtype(dtype: str) -> torch.dtype:
     return torch.bfloat16
 
 
+def _build_quant_config(config: GenerationConfig, torch_dtype: torch.dtype):
+    if config.load_in_4bit:
+        if BitsAndBytesConfig is None:
+            raise ImportError("bitsandbytes is required for 4-bit loading. Install with `pip install bitsandbytes`." )
+        return BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch_dtype,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4",
+        )
+    if config.load_in_8bit:
+        if BitsAndBytesConfig is None:
+            raise ImportError("bitsandbytes is required for 8-bit loading. Install with `pip install bitsandbytes`." )
+        return BitsAndBytesConfig(load_in_8bit=True)
+    return None
+
+
 def generate_icon_names(
     image_paths: List[Path],
     config: GenerationConfig,
@@ -102,12 +127,24 @@ def generate_icon_names(
         use_fast=config.use_fast_processor,
     )
     torch_dtype = _resolve_dtype(config.dtype)
-    model = AutoModelForImageTextToText.from_pretrained(
-        config.model_name,
+    quant_config = _build_quant_config(config, torch_dtype)
+
+    model_kwargs = dict(
         trust_remote_code=config.trust_remote_code,
-        torch_dtype=torch_dtype,
         device_map=config.device_map,
     )
+    if quant_config is not None:
+        model_kwargs["quantization_config"] = quant_config
+    else:
+        model_kwargs["torch_dtype"] = torch_dtype
+
+    model = AutoModelForImageTextToText.from_pretrained(
+        config.model_name,
+        **model_kwargs,
+    )
+    model.eval()
+    if hasattr(model, "generation_config"):
+        model.generation_config.use_cache = config.use_cache
 
     output_file.parent.mkdir(parents=True, exist_ok=True)
     progress = tqdm(total=len(image_paths), desc="screenshots", unit="img") if not quiet else None
@@ -133,7 +170,7 @@ def generate_icon_names(
                 return_tensors="pt",
             )
             inputs = {
-                key: value.to(model.device, dtype=torch_dtype if value.dtype.is_floating_point else None)
+                key: value.to(torch_dtype) if torch.is_floating_point(value) else value
                 for key, value in inputs.items()
             }
 
@@ -169,14 +206,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--temperature", type=float, default=0.1)
     parser.add_argument("--top-p", type=float, default=0.9)
     parser.add_argument("--dtype", choices=["bfloat16", "float16", "float32"], default="bfloat16")
-    parser.add_argument("--device-map", default="auto", help="Device map for model loading (e.g., auto)")
+    parser.add_argument("--device-map", default="auto", help="Device map for model loading (e.g., auto, balanced)")
     parser.add_argument("--use-fast-processor", action="store_true", help="Opt-in to fast vision processor")
+    parser.add_argument("--load-in-8bit", action="store_true", help="Load model weights in 8-bit (bitsandbytes)")
+    parser.add_argument("--load-in-4bit", action="store_true", help="Load model weights in 4-bit (bitsandbytes)")
+    parser.add_argument("--use-cache", action="store_true", help="Enable generation cache (uses more memory)")
     parser.add_argument("--quiet", action="store_true", help="Suppress progress bar")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+
+    if args.load_in_4bit and args.load_in_8bit:
+        raise ValueError("Choose only one of --load-in-4bit or --load-in-8bit.")
 
     images = _list_images(args.images_dir, list(args.image))
     if not images:
@@ -190,6 +233,9 @@ def main() -> None:
         top_p=args.top_p,
         device_map=args.device_map,
         use_fast_processor=args.use_fast_processor,
+        load_in_8bit=args.load_in_8bit,
+        load_in_4bit=args.load_in_4bit,
+        use_cache=args.use_cache,
     )
 
     generate_icon_names(
