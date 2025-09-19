@@ -24,6 +24,11 @@ except (ImportError, AttributeError):
 
 DistributedContext = _DistributedContext
 
+try:
+    from torch.utils.tensorboard import SummaryWriter  # type: ignore
+except ImportError:  # pragma: no cover
+    SummaryWriter = None  # type: ignore
+
 from text2ui.config import VoiceGenerationConfig, load_voice_config
 
 
@@ -60,6 +65,24 @@ def _run_pipeline(config: VoiceGenerationConfig, dist_ctx: Optional[DistributedC
         raise
 
 
+def _log_tensorboard(results, log_flag: bool) -> None:
+    if not log_flag:
+        return
+    if SummaryWriter is None:
+        raise RuntimeError("TensorBoard logging requested but torch.utils.tensorboard is unavailable.")
+    tb_root = Path("/tensorboard")
+    tb_root.mkdir(parents=True, exist_ok=True)
+    writer = SummaryWriter(log_dir=str(tb_root))
+    try:
+        for idx, sample in enumerate(results):
+            assistant_output = sample.get("assistant_output", "")
+            text_value = str(assistant_output)
+            writer.add_text("assistant_output", text_value, global_step=idx)
+    finally:
+        writer.flush()
+        writer.close()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate voice assistant outputs with Qwen models.")
     parser.add_argument("--config", type=Path, default=Path("configs/voice_pipeline.yaml"), help="Path to YAML config file")
@@ -67,6 +90,7 @@ def main() -> None:
     parser.add_argument("--output", type=Path, help="Override output file path")
     parser.add_argument("--num-samples", type=int, help="Override number of samples to generate")
     parser.add_argument("--use-stub", action="store_true", help="Use the fast deterministic stub generator")
+    parser.add_argument("--mlp", action="store_true", help="Write generated outputs to TensorBoard /tensorboard")
     args = parser.parse_args()
 
     config = load_voice_config(_resolve_cli_path(args.config))
@@ -84,6 +108,7 @@ def main() -> None:
         results = _run_pipeline(config, dist_ctx)
         if dist_ctx and dist_ctx.rank != 0:
             return
+        _log_tensorboard(results, args.mlp)
         print(f"Generated {len(results)} samples -> {config.output_file}")
     finally:
         if initialized and dist is not None and dist.is_initialized():
