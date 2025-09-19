@@ -21,7 +21,7 @@ from typing import Iterable, List, Optional
 import torch
 from PIL import Image
 from tqdm import tqdm
-from transformers import AutoModelForVision2Seq, AutoProcessor
+from transformers import AutoModelForImageTextToText, AutoProcessor
 
 
 DEFAULT_PROMPT = (
@@ -102,10 +102,10 @@ def generate_icon_names(
         use_fast=config.use_fast_processor,
     )
     torch_dtype = _resolve_dtype(config.dtype)
-    model = AutoModelForVision2Seq.from_pretrained(
+    model = AutoModelForImageTextToText.from_pretrained(
         config.model_name,
         trust_remote_code=config.trust_remote_code,
-        dtype=torch_dtype,
+        torch_dtype=torch_dtype,
         device_map=config.device_map,
     )
 
@@ -132,8 +132,10 @@ def generate_icon_names(
                 images=images,
                 return_tensors="pt",
             )
-            inputs = {key: value.to(model.device, dtype=torch_dtype if value.dtype.is_floating_point else None)
-                      for key, value in inputs.items()}
+            inputs = {
+                key: value.to(model.device, dtype=torch_dtype if value.dtype.is_floating_point else None)
+                for key, value in inputs.items()
+            }
 
             with torch.no_grad():
                 generated_ids = model.generate(
