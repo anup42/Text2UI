@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """Batch icon name extraction using Qwen VL models.
 
 Example (single process across all V100 GPUs):
@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Optional
@@ -37,6 +38,9 @@ DEFAULT_PROMPT = (
     "mapping each ID to a concise icon name using the exact format 'ID: name'. "
     "Use lowercase, single-word names when obvious (e.g., '1: delete')."
 )
+
+DEFAULT_MAX_MEMORY = "29GiB"
+DEFAULT_CPU_MEMORY = "64GiB"
 
 
 @dataclass
@@ -169,10 +173,15 @@ def generate_icon_names(
     if max_memory:
         gpu_count = torch.cuda.device_count()
         if gpu_count > 0:
-            model_kwargs["max_memory"] = {i: max_memory for i in range(gpu_count)}
+            gpu_mem = {i: max_memory for i in range(gpu_count)}
+            model_kwargs["max_memory"] = gpu_mem
         if offload_dir is not None:
             offload_dir.mkdir(parents=True, exist_ok=True)
             model_kwargs["offload_folder"] = str(offload_dir)
+        if BitsAndBytesConfig is None and quant_config is None:
+            # ensure CPU has headroom when not quantized
+            model_kwargs.setdefault("max_memory", {})
+            model_kwargs["max_memory"].update({"cpu": DEFAULT_CPU_MEMORY})
 
     if quant_config is not None:
         model_kwargs["quantization_config"] = quant_config
@@ -213,9 +222,9 @@ def generate_icon_names(
             device_inputs = {}
             for key, value in inputs.items():
                 if torch.is_floating_point(value):
-                    device_inputs[key] = value.to(model.device, dtype=torch_dtype)
+                    device_inputs[key] = value.to(torch_dtype)
                 else:
-                    device_inputs[key] = value.to(model.device)
+                    device_inputs[key] = value
 
             with torch.no_grad():
                 generated_ids = model.generate(
@@ -268,11 +277,18 @@ def main() -> None:
     if args.load_in_4bit and args.load_in_8bit:
         raise ValueError("Choose only one of --load-in-4bit or --load-in-8bit.")
 
+    if int(os.environ.get("WORLD_SIZE", "1")) > 1:
+        raise RuntimeError("Use a single process; this script shards the model across all GPUs internally.")
+
     _configure_attention(args.attn_backend)
 
     images = _list_images(args.images_dir, list(args.image))
     if not images:
         raise ValueError("No images provided. Use --images-dir and/or --image.")
+
+    effective_max_memory = args.max_memory
+    if effective_max_memory is None and torch.cuda.device_count() > 0:
+        effective_max_memory = DEFAULT_MAX_MEMORY
 
     config = GenerationConfig(
         model_name=args.model_name,
@@ -296,7 +312,7 @@ def main() -> None:
         quiet=args.quiet,
         max_edge=args.max_edge,
         attn_backend=args.attn_backend,
-        max_memory=args.max_memory,
+        max_memory=effective_max_memory,
         offload_dir=args.offload_dir,
     )
 
