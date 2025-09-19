@@ -39,6 +39,15 @@ def _prepare_writer():
     return writer, add_batch
 
 
+def _run_pipeline(config: VoiceGenerationConfig, batch_callback):
+    try:
+        return run_voice_pipeline(config, batch_callback=batch_callback)
+    except TypeError as exc:
+        if "batch_callback" in str(exc):
+            return run_voice_pipeline(config)
+        raise
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate voice assistant outputs with Qwen models.")
     parser.add_argument("--config", type=Path, default=Path("configs/voice_pipeline.yaml"), help="Path to YAML config file")
@@ -70,7 +79,7 @@ def main() -> None:
             )
 
     try:
-        results = run_voice_pipeline(config, batch_callback=batch_callback)
+        results = _run_pipeline(config, batch_callback)
         print(f"Generated {len(results)} samples -> {config.output_file}")
     finally:
         if writer is not None:
