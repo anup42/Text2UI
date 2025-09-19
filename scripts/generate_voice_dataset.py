@@ -39,11 +39,12 @@ def _prepare_writer():
     return writer, add_batch
 
 
-def _run_pipeline(config: VoiceGenerationConfig, batch_callback):
+def _run_pipeline(config: VoiceGenerationConfig, batch_callback, debug: bool):
     try:
-        return run_voice_pipeline(config, batch_callback=batch_callback)
+        return run_voice_pipeline(config, batch_callback=batch_callback, debug=debug)
     except TypeError as exc:
-        if "batch_callback" in str(exc):
+        message = str(exc)
+        if "batch_callback" in message or "debug" in message:
             return run_voice_pipeline(config)
         raise
 
@@ -54,8 +55,10 @@ def main() -> None:
     parser.add_argument("--model-name", type=str, help="Override model name")
     parser.add_argument("--output", type=Path, help="Override output file path")
     parser.add_argument("--num-samples", type=int, help="Override number of samples to generate")
+    parser.add_argument("--batch-size", type=int, help="Override batch size for inference")
     parser.add_argument("--use-stub", action="store_true", help="Use the fast deterministic stub generator")
     parser.add_argument("--mlp", action="store_true", help="Write generated outputs to TensorBoard /tensorboard")
+    parser.add_argument("--debug", action="store_true", help="Print assistant outputs as they are emitted")
     args = parser.parse_args()
 
     config = load_voice_config(_resolve_cli_path(args.config))
@@ -65,6 +68,8 @@ def main() -> None:
         config.output_file = _resolve_cli_path(args.output)
     if args.num_samples:
         config.num_samples = args.num_samples
+    if args.batch_size:
+        config.batch_size = max(1, args.batch_size)
     if args.use_stub:
         config.use_stub = True
 
@@ -79,7 +84,7 @@ def main() -> None:
             )
 
     try:
-        results = _run_pipeline(config, batch_callback)
+        results = _run_pipeline(config, batch_callback, args.debug)
         print(f"Generated {len(results)} samples -> {config.output_file}")
     finally:
         if writer is not None:

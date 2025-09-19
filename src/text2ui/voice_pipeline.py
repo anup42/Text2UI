@@ -77,6 +77,7 @@ def run_voice_pipeline(
     config: VoiceGenerationConfig,
     *,
     batch_callback: BatchCallback | None = None,
+    debug: bool = False,
 ) -> List[Dict[str, object]]:
     prompts = _collect_prompts(config)
     generation_params = GenerationParams(
@@ -97,10 +98,13 @@ def run_voice_pipeline(
             handle.write(json.dumps(record, ensure_ascii=False))
             handle.write("\n")
             handle.flush()
+            if debug:
+                print(f"[DEBUG] assistant_output: {record.get('assistant_output', '')}")
 
         progress = tqdm(total=len(prompts), desc="voice-samples", unit="sample")
 
         if config.use_stub:
+            batch_records: List[Dict[str, object]] = []
             for index, prompt in enumerate(prompts):
                 record: Dict[str, object] = {
                     "category": prompt.category,
@@ -113,10 +117,14 @@ def run_voice_pipeline(
                     "system_prompt": config.system_prompt.strip(),
                 }
                 emit(record)
-                if batch_callback is not None:
-                    batch_callback([record])
+                batch_records.append(record)
+                if batch_callback is not None and len(batch_records) >= batch_size:
+                    batch_callback(batch_records)
+                    batch_records = []
                 if hasattr(progress, "update"):
                     progress.update(1)
+            if batch_callback is not None and batch_records:
+                batch_callback(batch_records)
         else:
             client = LLMClient(
                 model_name=config.model_name,
