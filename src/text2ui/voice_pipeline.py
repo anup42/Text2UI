@@ -1,9 +1,15 @@
 ﻿from __future__ import annotations
 
 import json
+from contextlib import nullcontext
 from dataclasses import asdict
 from pathlib import Path
-from typing import Callable, Dict, List, Sequence
+from typing import Callable, Dict, List, Sequence, Tuple
+
+try:  # pragma: no cover - optional dependency for distributed helpers
+    from accelerate import PartialState  # type: ignore
+except ImportError:  # pragma: no cover - accelerate is optional for stub runs
+    PartialState = None  # type: ignore
 
 try:  # pragma: no cover - optional dependency fallback
     from tqdm import tqdm  # type: ignore
@@ -88,74 +94,143 @@ def run_voice_pipeline(
     outputs: List[Dict[str, object]] = []
     batch_size = max(1, config.batch_size)
 
-    ensure_parent_dir(config.output_file)
-    if config.output_file.exists():
-        config.output_file.unlink()
+    state = PartialState() if PartialState is not None else None
+    is_distributed = bool(state and state.num_processes > 1)
 
-    with config.output_file.open("w", encoding="utf-8") as handle:
-        def emit(record: Dict[str, object]) -> None:
-            outputs.append(record)
-            handle.write(json.dumps(record, ensure_ascii=False))
-            handle.write("\n")
-            handle.flush()
-            if debug:
-                print(f"[DEBUG] assistant_output: {record.get('assistant_output', '')}")
+    indexed_prompts: List[Tuple[int, VoicePrompt]] = list(enumerate(prompts))
+    context = (
+        state.split_between_processes(indexed_prompts)
+        if is_distributed and state is not None
+        else nullcontext(indexed_prompts)
+    )
 
-        progress = tqdm(total=len(prompts), desc="voice-samples", unit="sample")
+    with context as local_indexed_prompts:
+        progress = (
+            tqdm(total=len(prompts), desc="voice-samples", unit="sample")
+            if not is_distributed
+            else None
+        )
+        records_with_index: List[Tuple[int, Dict[str, object]]] = []
+        handle = None
 
-        if config.use_stub:
-            batch_records: List[Dict[str, object]] = []
-            for index, prompt in enumerate(prompts):
-                record: Dict[str, object] = {
-                    "category": prompt.category,
-                    "persona": prompt.persona,
-                    "locale": prompt.locale,
-                    "user_prompt": prompt.user_prompt,
-                    "assistant_output": stub_voice_response(prompt, seed=index + config.seed),
-                    "model": "stub",
-                    "generation": asdict(generation_params),
-                    "system_prompt": config.system_prompt.strip(),
-                }
-                emit(record)
-                batch_records.append(record)
-                if batch_callback is not None and len(batch_records) >= batch_size:
-                    batch_callback(batch_records)
-                    batch_records = []
-                if hasattr(progress, "update"):
-                    progress.update(1)
-            if batch_callback is not None and batch_records:
-                batch_callback(batch_records)
-        else:
-            client = LLMClient(
-                model_name=config.model_name,
-                generation=generation_params,
-            )
-            for start in range(0, len(prompts), batch_size):
-                batch_prompts = prompts[start : start + batch_size]
-                batch_messages = [
-                    _build_messages(prompt, config.system_prompt) for prompt in batch_prompts
-                ]
-                completions = client.generate_batch(batch_messages)
+        try:
+            if not is_distributed:
+                ensure_parent_dir(config.output_file)
+                if config.output_file.exists():
+                    config.output_file.unlink()
+                handle = config.output_file.open("w", encoding="utf-8")
+
+            def emit(index: int, record: Dict[str, object]) -> None:
+                outputs.append(record)
+                records_with_index.append((index, record))
+                if handle is not None:
+                    handle.write(json.dumps(record, ensure_ascii=False))
+                    handle.write("\n")
+                    handle.flush()
+                    if debug:
+                        print(f"[DEBUG] assistant_output: {record.get('assistant_output', '')}")
+
+            if config.use_stub:
                 batch_records: List[Dict[str, object]] = []
-                for prompt, completion in zip(batch_prompts, completions):
+                for index, prompt in local_indexed_prompts:
                     record = {
                         "category": prompt.category,
                         "persona": prompt.persona,
                         "locale": prompt.locale,
                         "user_prompt": prompt.user_prompt,
-                        "assistant_output": completion,
-                        "model": config.model_name,
+                        "assistant_output": stub_voice_response(prompt, seed=index + config.seed),
+                        "model": "stub",
                         "generation": asdict(generation_params),
                         "system_prompt": config.system_prompt.strip(),
                     }
-                    emit(record)
-                    batch_records.append(record)
-                    if hasattr(progress, "update"):
-                        progress.update(1)
-                if batch_callback is not None and batch_records:
+                    emit(index, record)
+                    if not is_distributed:
+                        batch_records.append(record)
+                        if batch_callback is not None and len(batch_records) >= batch_size:
+                            batch_callback(batch_records)
+                            batch_records = []
+                        if progress is not None and hasattr(progress, "update"):
+                            progress.update(1)
+                if not is_distributed and batch_callback is not None and batch_records:
                     batch_callback(batch_records)
+            else:
+                client = LLMClient(
+                    model_name=config.model_name,
+                    generation=generation_params,
+                )
+                for start in range(0, len(local_indexed_prompts), batch_size):
+                    batch_slice = local_indexed_prompts[start : start + batch_size]
+                    batch_prompts = [prompt for _, prompt in batch_slice]
+                    batch_messages = [
+                        _build_messages(prompt, config.system_prompt) for prompt in batch_prompts
+                    ]
+                    completions = client.generate_batch(batch_messages)
+                    local_records: List[Dict[str, object]] = []
+                    for (index, prompt), completion in zip(batch_slice, completions):
+                        record = {
+                            "category": prompt.category,
+                            "persona": prompt.persona,
+                            "locale": prompt.locale,
+                            "user_prompt": prompt.user_prompt,
+                            "assistant_output": completion,
+                            "model": config.model_name,
+                            "generation": asdict(generation_params),
+                            "system_prompt": config.system_prompt.strip(),
+                        }
+                        emit(index, record)
+                        if not is_distributed:
+                            local_records.append(record)
+                            if progress is not None and hasattr(progress, "update"):
+                                progress.update(1)
+                    if not is_distributed and batch_callback is not None and local_records:
+                        batch_callback(local_records)
 
-        if hasattr(progress, "close"):
-            progress.close()
+        finally:
+            if handle is not None:
+                handle.flush()
+                handle.close()
+            if progress is not None and hasattr(progress, "close"):
+                progress.close()
+
+        if is_distributed and state is not None:
+            state.wait_for_everyone()
+            try:
+                import torch.distributed as dist  # type: ignore
+            except ImportError:  # pragma: no cover - torch missing in stubbed runs
+                dist = None  # type: ignore
+
+            if dist is not None and dist.is_available() and dist.is_initialized():
+                object_list: List[List[Tuple[int, Dict[str, object]]]] = [
+                    [] for _ in range(state.num_processes)
+                ]
+                dist.all_gather_object(object_list, records_with_index)
+                gathered = object_list
+            else:
+                gathered = [records_with_index]
+
+            if state.is_main_process:
+                ensure_parent_dir(config.output_file)
+                if config.output_file.exists():
+                    config.output_file.unlink()
+                sorted_records = sorted(
+                    (item for sublist in gathered for item in sublist),
+                    key=lambda pair: pair[0],
+                )
+                with config.output_file.open("w", encoding="utf-8") as handle_out:
+                    for _, record in sorted_records:
+                        handle_out.write(json.dumps(record, ensure_ascii=False))
+                        handle_out.write("\n")
+                outputs = [record for _, record in sorted_records]
+                if batch_callback is not None:
+                    for start in range(0, len(outputs), batch_size):
+                        batch_callback(outputs[start : start + batch_size])
+                if debug:
+                    for record in outputs:
+                        print(
+                            f"[DEBUG] assistant_output: {record.get('assistant_output', '')}"
+                        )
+            else:
+                outputs = []
+            state.wait_for_everyone()
 
     return outputs

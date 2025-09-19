@@ -3,6 +3,11 @@ import sys
 import time
 from pathlib import Path
 
+try:  # pragma: no cover - accelerate only required for multi-GPU runs
+    from accelerate import PartialState  # type: ignore
+except ImportError:  # pragma: no cover - fallback when accelerate is absent
+    PartialState = None  # type: ignore
+
 try:
     from torch.utils.tensorboard import SummaryWriter  # type: ignore
 except ImportError:  # pragma: no cover
@@ -92,8 +97,15 @@ def main() -> None:
                 file=sys.stderr,
             )
 
+    state = PartialState() if PartialState is not None else None
+    is_main = bool(state is None or state.is_main_process)
+
     try:
-        results = run_voice_pipeline(config, batch_callback=batch_callback if batch_callback else None, debug=args.debug)
+        results = run_voice_pipeline(
+            config,
+            batch_callback=batch_callback if batch_callback else None,
+            debug=args.debug,
+        )
         already_logged = True
     except TypeError as exc:
         message = str(exc)
@@ -104,13 +116,16 @@ def main() -> None:
             raise
 
     try:
-        print(f"Generated {len(results)} samples -> {config.output_file}")
-        if args.debug:
-            _debug_log(results, already_logged)
+        if is_main:
+            print(f"Generated {len(results)} samples -> {config.output_file}")
+            if args.debug:
+                _debug_log(results, already_logged)
     finally:
         if writer is not None:
             writer.flush()
             writer.close()
+        if state is not None:
+            state.wait_for_everyone()
 
 
 if __name__ == "__main__":
