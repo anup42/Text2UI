@@ -182,7 +182,7 @@ def main() -> None:
 
     config = GenerationConfig(
         model_name=args.model_name,
-        torch_dtype=args.dtype,
+        dtype=args.dtype,
         max_new_tokens=args.max_new_tokens,
         temperature=args.temperature,
         top_p=args.top_p,
