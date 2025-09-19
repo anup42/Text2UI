@@ -1,28 +1,6 @@
 ﻿import argparse
-import os
-from dataclasses import dataclass
+import time
 from pathlib import Path
-from typing import Optional
-
-try:
-    import torch
-    import torch.distributed as dist
-except ImportError:  # pragma: no cover
-    torch = None  # type: ignore
-    dist = None  # type: ignore
-
-try:
-    from text2ui.voice_pipeline import DistributedContext as _DistributedContext, run_voice_pipeline
-except (ImportError, AttributeError):
-    from text2ui.voice_pipeline import run_voice_pipeline  # type: ignore
-
-    @dataclass
-    class _DistributedContext:  # type: ignore
-        rank: int
-        world_size: int
-        local_rank: int
-
-DistributedContext = _DistributedContext
 
 try:
     from torch.utils.tensorboard import SummaryWriter  # type: ignore
@@ -30,57 +8,29 @@ except ImportError:  # pragma: no cover
     SummaryWriter = None  # type: ignore
 
 from text2ui.config import VoiceGenerationConfig, load_voice_config
+from text2ui.voice_pipeline import run_voice_pipeline
 
 
 def _resolve_cli_path(path: Path) -> Path:
     return path.expanduser().resolve()
 
 
-def _setup_distributed() -> tuple[Optional[DistributedContext], bool]:
-    if torch is None or dist is None or not dist.is_available():
-        return None, False
-    if "RANK" not in os.environ or "WORLD_SIZE" not in os.environ:
-        return None, False
-    initialized = False
-    if not dist.is_initialized():
-        backend = "nccl" if torch.cuda.is_available() else "gloo"
-        dist.init_process_group(backend=backend)
-        initialized = True
-    rank = dist.get_rank()
-    world_size = dist.get_world_size()
-    local_rank = int(os.environ.get("LOCAL_RANK", rank))
-    if torch.cuda.is_available():
-        torch.cuda.set_device(local_rank)
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.allow_tf32 = True
-    return DistributedContext(rank=rank, world_size=world_size, local_rank=local_rank), initialized
-
-
-def _run_pipeline(config: VoiceGenerationConfig, dist_ctx: Optional[DistributedContext]):
-    try:
-        return run_voice_pipeline(config, dist_ctx=dist_ctx)
-    except TypeError as exc:
-        if "unexpected keyword argument 'dist_ctx'" in str(exc):
-            return run_voice_pipeline(config)
-        raise
-
-
-def _log_tensorboard(results, log_flag: bool) -> None:
-    if not log_flag:
-        return
+def _prepare_writer():
     if SummaryWriter is None:
         raise RuntimeError("TensorBoard logging requested but torch.utils.tensorboard is unavailable.")
-    tb_root = Path("/tensorboard")
-    tb_root.mkdir(parents=True, exist_ok=True)
-    writer = SummaryWriter(log_dir=str(tb_root))
-    try:
-        for idx, sample in enumerate(results):
-            assistant_output = sample.get("assistant_output", "")
-            text_value = str(assistant_output)
-            writer.add_text("assistant_output", text_value, global_step=idx)
-    finally:
-        writer.flush()
-        writer.close()
+    root = Path("/tensorboard")
+    root.mkdir(parents=True, exist_ok=True)
+    run_dir = root / f"voice_{int(time.time())}"
+    writer = SummaryWriter(log_dir=str(run_dir))
+    step = 0
+
+    def add_batch(records):
+        nonlocal step
+        for record in records:
+            writer.add_text("assistant_output", str(record.get("assistant_output", "")), step)
+            step += 1
+
+    return writer, add_batch
 
 
 def main() -> None:
@@ -103,17 +53,18 @@ def main() -> None:
     if args.use_stub:
         config.use_stub = True
 
-    dist_ctx, initialized = _setup_distributed()
+    writer = None
+    batch_callback = None
+    if args.mlp:
+        writer, batch_callback = _prepare_writer()
+
     try:
-        results = _run_pipeline(config, dist_ctx)
-        if dist_ctx and dist_ctx.rank != 0:
-            return
-        _log_tensorboard(results, args.mlp)
+        results = run_voice_pipeline(config, batch_callback=batch_callback)
         print(f"Generated {len(results)} samples -> {config.output_file}")
     finally:
-        if initialized and dist is not None and dist.is_initialized():
-            dist.barrier()
-            dist.destroy_process_group()
+        if writer is not None:
+            writer.flush()
+            writer.close()
 
 
 if __name__ == "__main__":
