@@ -41,12 +41,21 @@ def _prepare_writer():
 
 def _run_pipeline(config: VoiceGenerationConfig, batch_callback, debug: bool):
     try:
-        return run_voice_pipeline(config, batch_callback=batch_callback, debug=debug)
+        run_voice_pipeline(config, batch_callback=batch_callback, debug=debug)
+        return True
     except TypeError as exc:
         message = str(exc)
         if "batch_callback" in message or "debug" in message:
-            return run_voice_pipeline(config)
+            run_voice_pipeline(config)
+            return False
         raise
+
+
+def _debug_log(results, already_logged: bool) -> None:
+    if already_logged:
+        return
+    for record in results:
+        print(f"[DEBUG] assistant_output: {record.get('assistant_output', '')}")
 
 
 def main() -> None:
@@ -84,8 +93,20 @@ def main() -> None:
             )
 
     try:
-        results = _run_pipeline(config, batch_callback, args.debug)
+        results = run_voice_pipeline(config, batch_callback=batch_callback if batch_callback else None, debug=args.debug)
+        already_logged = True
+    except TypeError as exc:
+        message = str(exc)
+        if "batch_callback" in message or "debug" in message:
+            results = run_voice_pipeline(config)
+            already_logged = False
+        else:
+            raise
+
+    try:
         print(f"Generated {len(results)} samples -> {config.output_file}")
+        if args.debug:
+            _debug_log(results, already_logged)
     finally:
         if writer is not None:
             writer.flush()
