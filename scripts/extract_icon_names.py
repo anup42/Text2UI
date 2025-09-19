@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Batch icon name extraction using Qwen VL models.
 
-Example (8x V100 with torchrun):
-  torchrun --nproc-per-node 8 scripts/extract_icon_names.py \
+Example (single process across all V100 GPUs):
+  python scripts/extract_icon_names.py \
     --images-dir data/screenshots/icons \
-    --output-file outputs/icon_labels.jsonl
+    --output-file outputs/icon_labels.jsonl \
+    --batch-size 1 --load-in-4bit --max-memory 29GiB
 
 Screenshots must already contain bounding boxes + numeric IDs (1..N).
 The model returns lines like "1: delete" for each ID.
@@ -21,8 +22,8 @@ from typing import Iterable, List, Optional
 import torch
 from PIL import Image
 from tqdm import tqdm
-from transformers import AutoModelForImageTextToText, AutoProcessor
 from torch.backends.cuda import sdp_kernel
+from transformers import AutoModelForImageTextToText, AutoProcessor
 
 try:
     from transformers import BitsAndBytesConfig  # type: ignore
@@ -70,10 +71,23 @@ def _list_images(images_dir: Optional[Path], image_paths: List[Path]) -> List[Pa
     return unique
 
 
-def _load_images(paths: Iterable[Path]) -> List[Image.Image]:
+def _resize_if_needed(img: Image.Image, max_edge: Optional[int]) -> Image.Image:
+    if not max_edge:
+        return img
+    width, height = img.size
+    longest = max(width, height)
+    if longest <= max_edge:
+        return img
+    scale = max_edge / float(longest)
+    new_size = (max(1, int(width * scale)), max(1, int(height * scale)))
+    return img.resize(new_size, Image.BILINEAR)
+
+
+def _load_images(paths: Iterable[Path], max_edge: Optional[int]) -> List[Image.Image]:
     images: List[Image.Image] = []
     for path in paths:
-        images.append(Image.open(path).convert("RGB"))
+        img = Image.open(path).convert("RGB")
+        images.append(_resize_if_needed(img, max_edge))
     return images
 
 
@@ -97,10 +111,22 @@ def _resolve_dtype(dtype: str) -> torch.dtype:
     return torch.bfloat16
 
 
+def _configure_attention(backend: str) -> None:
+    try:
+        if backend == "mem_efficient":
+            sdp_kernel(enable_flash=False, enable_math=False, enable_mem_efficient=True)
+        elif backend == "eager":
+            sdp_kernel(enable_flash=False, enable_math=True, enable_mem_efficient=False)
+        else:  # sdpa
+            sdp_kernel(enable_flash=False, enable_math=True, enable_mem_efficient=True)
+    except Exception:
+        pass
+
+
 def _build_quant_config(config: GenerationConfig, torch_dtype: torch.dtype):
     if config.load_in_4bit:
         if BitsAndBytesConfig is None:
-            raise ImportError("bitsandbytes is required for 4-bit loading. Install with `pip install bitsandbytes`." )
+            raise ImportError("bitsandbytes is required for 4-bit loading. Install with `pip install bitsandbytes`.")
         return BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_compute_dtype=torch_dtype,
@@ -109,7 +135,7 @@ def _build_quant_config(config: GenerationConfig, torch_dtype: torch.dtype):
         )
     if config.load_in_8bit:
         if BitsAndBytesConfig is None:
-            raise ImportError("bitsandbytes is required for 8-bit loading. Install with `pip install bitsandbytes`." )
+            raise ImportError("bitsandbytes is required for 8-bit loading. Install with `pip install bitsandbytes`.")
         return BitsAndBytesConfig(load_in_8bit=True)
     return None
 
@@ -121,6 +147,10 @@ def generate_icon_names(
     batch_size: int,
     output_file: Path,
     quiet: bool = False,
+    max_edge: Optional[int] = None,
+    attn_backend: str = "mem_efficient",
+    max_memory: Optional[str] = None,
+    offload_dir: Optional[Path] = None,
 ) -> None:
     processor = AutoProcessor.from_pretrained(
         config.model_name,
@@ -133,7 +163,17 @@ def generate_icon_names(
     model_kwargs = dict(
         trust_remote_code=config.trust_remote_code,
         device_map=config.device_map,
+        low_cpu_mem_usage=True,
+        attn_implementation="eager" if attn_backend == "eager" else "sdpa",
     )
+    if max_memory:
+        gpu_count = torch.cuda.device_count()
+        if gpu_count > 0:
+            model_kwargs["max_memory"] = {i: max_memory for i in range(gpu_count)}
+        if offload_dir is not None:
+            offload_dir.mkdir(parents=True, exist_ok=True)
+            model_kwargs["offload_folder"] = str(offload_dir)
+
     if quant_config is not None:
         model_kwargs["quantization_config"] = quant_config
     else:
@@ -153,7 +193,7 @@ def generate_icon_names(
     with output_file.open("w", encoding="utf-8") as handle:
         for start in range(0, len(image_paths), batch_size):
             batch_paths = image_paths[start : start + batch_size]
-            images = _load_images(batch_paths)
+            images = _load_images(batch_paths, max_edge)
             messages_batch = [_prepare_messages(prompt, image) for image in images]
 
             chat_prompts = [
@@ -170,14 +210,16 @@ def generate_icon_names(
                 images=images,
                 return_tensors="pt",
             )
-            inputs = {
-                key: value.to(torch_dtype) if torch.is_floating_point(value) else value
-                for key, value in inputs.items()
-            }
+            device_inputs = {}
+            for key, value in inputs.items():
+                if torch.is_floating_point(value):
+                    device_inputs[key] = value.to(model.device, dtype=torch_dtype)
+                else:
+                    device_inputs[key] = value.to(model.device)
 
             with torch.no_grad():
                 generated_ids = model.generate(
-                    **inputs,
+                    **device_inputs,
                     max_new_tokens=config.max_new_tokens,
                     temperature=config.temperature,
                     top_p=config.top_p,
@@ -212,6 +254,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--load-in-8bit", action="store_true", help="Load model weights in 8-bit (bitsandbytes)")
     parser.add_argument("--load-in-4bit", action="store_true", help="Load model weights in 4-bit (bitsandbytes)")
     parser.add_argument("--use-cache", action="store_true", help="Enable generation cache (uses more memory)")
+    parser.add_argument("--max-edge", type=int, default=896, help="Resize so max(image_w, image_h) <= this value to reduce visual tokens")
+    parser.add_argument("--attn-backend", choices=["mem_efficient", "sdpa", "eager"], default="mem_efficient", help="Attention kernel selection")
+    parser.add_argument("--max-memory", default=None, help='Per-GPU memory limit, e.g., "29GiB"')
+    parser.add_argument("--offload-dir", type=Path, default=Path(".offload"), help="Folder for CPU/NVMe offload when sharding")
     parser.add_argument("--quiet", action="store_true", help="Suppress progress bar")
     return parser.parse_args()
 
@@ -221,6 +267,8 @@ def main() -> None:
 
     if args.load_in_4bit and args.load_in_8bit:
         raise ValueError("Choose only one of --load-in-4bit or --load-in-8bit.")
+
+    _configure_attention(args.attn_backend)
 
     images = _list_images(args.images_dir, list(args.image))
     if not images:
@@ -246,19 +294,12 @@ def main() -> None:
         batch_size=max(1, args.batch_size),
         output_file=args.output_file.resolve(),
         quiet=args.quiet,
+        max_edge=args.max_edge,
+        attn_backend=args.attn_backend,
+        max_memory=args.max_memory,
+        offload_dir=args.offload_dir,
     )
 
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
-
