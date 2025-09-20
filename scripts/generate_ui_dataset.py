@@ -1,4 +1,4 @@
-import argparse
+﻿import argparse
 from pathlib import Path
 
 from text2ui.config import UIGenerationConfig, load_ui_config
@@ -33,9 +33,24 @@ def main() -> None:
 
     limit = args.num_samples
 
-    results = run_ui_pipeline(config, batch_size=config.batch_size, max_samples=limit)
+    kwargs = {"batch_size": config.batch_size}
+    if limit is not None:
+        kwargs["max_samples"] = limit
+
+    try:
+        results = run_ui_pipeline(config, **kwargs)
+    except TypeError as exc:
+        exc_msg = str(exc)
+        if "batch_size" in exc_msg or "max_samples" in exc_msg:
+            results = run_ui_pipeline(config)
+            if limit is not None:
+                results = results[: max(0, limit)]
+        else:
+            raise
+
     print(f"Generated {len(results)} UI samples -> {config.output_file}")
 
 
 if __name__ == "__main__":
     main()
+
