@@ -35,7 +35,21 @@ def run_ui_pipeline(
     *,
     batch_size: int | None = None,
     max_samples: int | None = None,
+    **legacy_kwargs: object,
 ) -> List[Dict[str, object]]:
+    if "batch size" in legacy_kwargs:
+        if batch_size is not None:
+            raise TypeError(
+                "run_ui_pipeline() received both 'batch_size' and legacy 'batch size' arguments"
+            )
+        try:
+            batch_size_value = int(legacy_kwargs.pop("batch size"))
+        except (TypeError, ValueError) as exc:
+            raise TypeError("'batch size' must be convertible to an integer") from exc
+        batch_size = batch_size_value
+    if legacy_kwargs:
+        unexpected = ", ".join(sorted(legacy_kwargs))
+        raise TypeError(f"run_ui_pipeline() got unexpected keyword arguments: {unexpected}")
     voice_samples = list(read_jsonl(config.input_file))
     if max_samples is not None:
         voice_samples = voice_samples[: max(0, max_samples)]

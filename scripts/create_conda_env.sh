@@ -31,11 +31,8 @@ else
 fi
 
 SOLVER_NAME=$(basename "$SOLVER_BIN")
-
 if [[ "$SOLVER_NAME" != "conda" ]]; then
-  echo "[ERROR] Only the 'conda' solver is supported by this script. Detected solver: '$SOLVER_NAME'." >&2
-  echo "        Set CONDA_SOLVER to the path of the 'conda' executable if needed." >&2
-  exit 1
+  echo "[INFO] Using non-standard solver '$SOLVER_NAME' as provided via CONDA_SOLVER." >&2
 fi
 
 if ! "$SOLVER_BIN" env list >/dev/null 2>&1; then
