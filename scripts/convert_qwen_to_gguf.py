@@ -43,6 +43,13 @@ from pathlib import Path
 from typing import Dict, Iterable, Optional
 
 import torch
+
+try:  # pragma: no cover - optional dependency
+    import torch.distributed as dist  # type: ignore
+    from torch.distributed import distributed_c10d  # type: ignore
+except Exception:  # pragma: no cover - torch may lack distributed support
+    dist = None  # type: ignore
+    distributed_c10d = None  # type: ignore
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 try:  # pragma: no cover - optional dependency
@@ -158,6 +165,42 @@ def _resolve_base_model(args: argparse.Namespace, adapter_cfg: Dict[str, object]
     )
 
 
+_FAKE_DIST_INITIALIZED = False
+
+
+def _ensure_fake_process_groups(group_names: Iterable[object]) -> bool:
+    """Materialize dummy process groups so DTensor redistribution works offline."""
+
+    if dist is None or distributed_c10d is None:
+        return False
+
+    names = [str(name) for name in group_names if name is not None]
+    if not names:
+        return False
+
+    global _FAKE_DIST_INITIALIZED
+    if not dist.is_initialized():
+        init_handle = tempfile.NamedTemporaryFile(prefix="text2ui_pg_init_", delete=False)
+        init_handle.close()
+        init_method = f"file://{init_handle.name}"
+        try:
+            dist.init_process_group(backend="gloo", rank=0, world_size=1, init_method=init_method)
+        finally:
+            try:
+                os.unlink(init_handle.name)
+            except OSError:
+                pass
+        _FAKE_DIST_INITIALIZED = True
+
+    for name in names:
+        try:
+            distributed_c10d.get_group_size_by_name(name)
+        except RuntimeError:
+            dist.new_group(ranks=[0], group_name=name)
+
+    return True
+
+
 def _prepare_adapter_dir(checkpoint_dir: Path, verbose: bool) -> tuple[Path, Optional[tempfile.TemporaryDirectory[str]]]:
     """Materialize a CPU-friendly adapter directory, converting DTensors when needed."""
     weight_candidates = [
@@ -188,22 +231,42 @@ def _prepare_adapter_dir(checkpoint_dir: Path, verbose: bool) -> tuple[Path, Opt
             if DTensor is not None and isinstance(tensor, DTensor):
                 gathered: Optional[torch.Tensor] = None
                 try:
-                    gathered = tensor.full_tensor()
-                except RuntimeError:
-                    try:
-                        from torch.distributed._tensor.placement_types import Replicate  # type: ignore
-
+                    # Fast-path for replicated placements where the local shard already
+                    # contains the complete tensor. ``to_local`` does not require an
+                    # initialized process group.
+                    placements = list(getattr(tensor, "placements", []))
+                    if placements and all(getattr(p, "is_replicate", getattr(p, "__class__", type(p)).__name__ == "Replicate") for p in placements):
+                        gathered = tensor.to_local()
+                    else:
+                        gathered = tensor.full_tensor()
+                except RuntimeError as exc:
+                    if "process group" in str(exc).lower():
                         mesh = getattr(tensor, "device_mesh", None)
-                        if mesh is None:
-                            raise RuntimeError("DTensor is missing device mesh information")
-                        placements = [Replicate()] * mesh.ndim
-                        redistributed = tensor.redistribute(device_mesh=mesh, placements=placements)
-                        gathered = redistributed.to_local()
-                    except Exception as exc:  # pragma: no cover - defensive fallback
-                        raise RuntimeError(
-                            "Failed to materialize DTensor weights. Re-run training with --no_fsdp or install "
-                            "a torch version that supports DTensor.redistribute on CPU."
-                        ) from exc
+                        group_infos = getattr(mesh, "_dim_group_infos", None)
+                        group_names = []
+                        if isinstance(group_infos, Iterable):
+                            for info in group_infos:
+                                if isinstance(info, dict):
+                                    group_names.append(info.get("group_name"))
+                        if _ensure_fake_process_groups(group_names):
+                            gathered = tensor.full_tensor()
+                        else:
+                            raise
+                    else:
+                        try:
+                            from torch.distributed._tensor.placement_types import Replicate  # type: ignore
+
+                            mesh = getattr(tensor, "device_mesh", None)
+                            if mesh is None:
+                                raise RuntimeError("DTensor is missing device mesh information")
+                            placements = [Replicate()] * mesh.ndim
+                            redistributed = tensor.redistribute(device_mesh=mesh, placements=placements)
+                            gathered = redistributed.to_local()
+                        except Exception as exc2:  # pragma: no cover - defensive fallback
+                            raise RuntimeError(
+                                "Failed to materialize DTensor weights. Re-run training with --no_fsdp or install "
+                                "a torch version that supports DTensor.redistribute on CPU."
+                            ) from exc2
                 if gathered is None:
                     raise RuntimeError("Unable to reconstruct DTensor weights from distributed checkpoint shards.")
                 tensor = gathered
