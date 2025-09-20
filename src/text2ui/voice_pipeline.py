@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 from dataclasses import asdict
@@ -159,3 +159,4 @@ def run_voice_pipeline(
             progress.close()
 
     return outputs
+
