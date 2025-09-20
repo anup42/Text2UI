@@ -30,7 +30,9 @@ def main() -> None:
         config.batch_size = max(1, args.batch_size)
     if args.max_new_tokens:
         config.max_new_tokens = args.max_new_tokens
-
+    if args.num_samples:
+        config.num_samples = args.num_samples
+        
     limit = args.num_samples
 
     kwargs = {"batch_size": config.batch_size}
