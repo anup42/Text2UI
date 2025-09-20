@@ -221,6 +221,8 @@ def main() -> None:
             target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
         )
         model = get_peft_model(model, lora_config)
+        if hasattr(model, "enable_input_require_grads"):
+            model.enable_input_require_grads()
 
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
@@ -275,6 +277,7 @@ def main() -> None:
         "gradient_checkpointing": gradient_checkpointing,
         "report_to": ["tensorboard"] if args.tensorboard_dir else None,
         "seed": args.seed,
+        "save_safetensors": False,
     }
     if gradient_checkpointing:
         training_kwargs["gradient_checkpointing_kwargs"] = {"use_reentrant": False}
@@ -291,7 +294,7 @@ def main() -> None:
     trainer.train()
 
     if args.lora:
-        trainer.model.save_pretrained(args.output_dir)
+        trainer.model.save_pretrained(args.output_dir, safe_serialization=False)
     else:
         trainer.save_model(args.output_dir)
     tokenizer.save_pretrained(args.output_dir)
