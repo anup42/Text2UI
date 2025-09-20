@@ -41,6 +41,7 @@ import sys
 import tempfile
 from pathlib import Path
 from typing import Dict, Iterable, Optional
+from urllib import error as urllib_error, request as urllib_request
 
 import torch
 
@@ -105,6 +106,20 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         help="Explicit path to convert_hf_to_gguf.py. Overrides --llama-cpp-root.",
     )
     parser.add_argument(
+        "--download-converter",
+        action="store_true",
+        help=(
+            "Download convert_hf_to_gguf.py from llama.cpp when it is not available locally."
+            " Use --converter-cache-dir to control the download location."
+        ),
+    )
+    parser.add_argument(
+        "--converter-cache-dir",
+        type=Path,
+        default=None,
+        help="Directory to cache a downloaded convert_hf_to_gguf.py script.",
+    )
+    parser.add_argument(
         "--merged-output",
         type=Path,
         help=(
@@ -136,6 +151,16 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     args = parser.parse_args(list(argv) if argv is not None else None)
     if args.dry_run:
         args.run_converter = False
+
+    if args.converter_cache_dir is None:
+        cache_default = Path(os.environ.get("TEXT2UI_CONVERTER_CACHE", "~/.cache/text2ui/llama_cpp"))
+    else:
+        cache_default = args.converter_cache_dir
+    args.converter_cache_dir = cache_default.expanduser().resolve()
+
+    env_auto = os.environ.get("TEXT2UI_AUTO_DOWNLOAD_CONVERTER", "")
+    args.auto_download_converter = args.download_converter or env_auto.lower() in {"1", "true", "yes"}
+
     return args
 
 
@@ -386,6 +411,25 @@ def _load_and_merge_lora(
     tokenizer.save_pretrained(output_dir)
 
 
+def _download_converter(cache_dir: Path, verbose: bool) -> Path:
+    url = "https://raw.githubusercontent.com/ggerganov/llama.cpp/master/scripts/convert_hf_to_gguf.py"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    destination = cache_dir / "convert_hf_to_gguf.py"
+    if destination.exists():
+        return destination
+    if verbose:
+        print(f"Downloading convert_hf_to_gguf.py from {url} ...", flush=True)
+    try:
+        with urllib_request.urlopen(url) as response:
+            payload = response.read()
+    except urllib_error.URLError as exc:  # pragma: no cover - network failure
+        raise FileNotFoundError(
+            "Unable to download convert_hf_to_gguf.py; provide --convert-script manually."
+        ) from exc
+    destination.write_bytes(payload)
+    return destination
+
+
 def _find_convert_script(args: argparse.Namespace) -> Path:
     candidates = []
     if args.convert_script:
@@ -406,9 +450,11 @@ def _find_convert_script(args: argparse.Namespace) -> Path:
     for candidate in candidates:
         if candidate and candidate.exists():
             return candidate
+    if getattr(args, "auto_download_converter", False):
+        return _download_converter(args.converter_cache_dir, args.verbose)
     raise FileNotFoundError(
-        "Unable to locate convert_hf_to_gguf.py. Provide --convert-script explicitly or set"
-        " --llama-cpp-root / LLAMA_CPP_ROOT to the path containing the converter."
+        "Unable to locate convert_hf_to_gguf.py. Provide --convert-script explicitly, set --llama-cpp-root / LLAMA_CPP_ROOT,"
+        " or re-run with --download-converter to fetch it automatically."
     )
 
 
