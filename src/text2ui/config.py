@@ -35,6 +35,7 @@ class UIGenerationConfig:
     system_prompt: str
     input_file: Path
     output_file: Path
+    num_samples: int = 1000
     max_new_tokens: int = 896
     temperature: float = 0.2
     top_p: float = 0.9
