@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Sequence
@@ -170,6 +171,8 @@ def main() -> None:
     parser.add_argument("--save-steps", type=int, default=500)
     parser.add_argument("--logging-steps", type=int, default=50)
     parser.add_argument("--tensorboard-dir", type=Path, default=None)
+    parser.add_argument("--no-gradient-checkpointing", action="store_true", 
+                        help="Disable gradient checkpointing (useful with FSDP activation checkpointing).")
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
@@ -218,6 +221,40 @@ def main() -> None:
 
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
+    # Disable Trainer gradient checkpointing when it conflicts with Accelerate FSDP activation checkpointing.
+    gradient_checkpointing = not args.no_gradient_checkpointing
+    disable_reason = None
+
+    if gradient_checkpointing:
+        state = None
+        try:
+            from accelerate.state import AcceleratorState  # type: ignore
+        except ImportError:
+            state = None
+        else:
+            try:
+                state = AcceleratorState()
+            except Exception:
+                state = None
+        if state is not None:
+            distributed_type = getattr(state, "distributed_type", None)
+            if getattr(distributed_type, "name", "").upper() == "FSDP":
+                fsdp_plugin = getattr(state, "fsdp_plugin", None)
+                if getattr(fsdp_plugin, "activation_checkpointing", False):
+                    gradient_checkpointing = False
+                    disable_reason = (
+                        "Disabling gradient checkpointing because FSDP activation checkpointing is enabled; "
+                        "rely on FSDP settings instead."
+                    )
+        if gradient_checkpointing and os.environ.get("ACCELERATE_USE_FSDP", "").lower() in {"1", "true", "yes"}:
+            gradient_checkpointing = False
+            if disable_reason is None:
+                disable_reason = (
+                    "Disabling gradient checkpointing because Accelerate is configured for FSDP."
+                )
+    if disable_reason:
+        print(disable_reason, flush=True)
+
     training_args = TrainingArguments(
         output_dir=str(args.output_dir),
         learning_rate=args.learning_rate,
@@ -232,7 +269,7 @@ def main() -> None:
         logging_dir=str(args.tensorboard_dir) if args.tensorboard_dir else None,
         bf16=torch.cuda.is_available(),
         fp16=False,
-        gradient_checkpointing=True,
+        gradient_checkpointing=gradient_checkpointing,
         report_to=["tensorboard"] if args.tensorboard_dir else None,
         seed=args.seed,
     )

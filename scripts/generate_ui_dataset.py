@@ -17,6 +17,9 @@ def main() -> None:
     parser.add_argument("--num-samples", type=int, help="Limit number of input records processed")
     args = parser.parse_args()
 
+    if args.num_samples is not None and args.num_samples < 0:
+        parser.error('--num-samples must be a non-negative integer')
+
     config = load_ui_config(args.config)
     if args.model_name:
         config.model_name = args.model_name
@@ -30,7 +33,7 @@ def main() -> None:
         config.batch_size = max(1, args.batch_size)
     if args.max_new_tokens:
         config.max_new_tokens = args.max_new_tokens
-    if args.num_samples:
+    if args.num_samples is not None:
         config.num_samples = args.num_samples
 
     limit = args.num_samples

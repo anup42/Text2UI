@@ -51,9 +51,9 @@ def run_ui_pipeline(
         unexpected = ", ".join(sorted(legacy_kwargs))
         raise TypeError(f"run_ui_pipeline() got unexpected keyword arguments: {unexpected}")
     voice_samples = list(read_jsonl(config.input_file))
-    max_samples = config.num_samples
-    if max_samples is not None:
-        voice_samples = voice_samples[: max(0, max_samples)]
+    effective_limit = max_samples if max_samples is not None else config.num_samples
+    if effective_limit is not None:
+        voice_samples = voice_samples[: max(0, effective_limit)]
     generation_params = GenerationParams(
         max_new_tokens=config.max_new_tokens,
         temperature=config.temperature,
