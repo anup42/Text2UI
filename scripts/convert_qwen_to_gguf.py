@@ -172,26 +172,18 @@ def _load_and_merge_lora(
         load_kwargs = {
             "torch_dtype": dtype,
             "trust_remote_code": trust_remote_code,
+            "device_map": None,
+            "low_cpu_mem_usage": False,
         }
-        device_map = "cpu" if not torch.cuda.is_available() else "auto"
-        load_kwargs["device_map"] = device_map
-        # Newer PEFT builds expect `base_model_name_or_path`, older ones accept `base_model`.
-        if base_model:
-            load_kwargs["base_model_name_or_path"] = base_model
-            load_kwargs.setdefault("base_model", base_model)
         try:
             merged_model = AutoPeftModelForCausalLM.from_pretrained(
                 checkpoint_dir,
                 **load_kwargs,
             )
-        except TypeError as exc:
-            load_kwargs.pop("base_model", None)
-            if "base_model_name_or_path" in str(exc):
-                load_kwargs.pop("base_model_name_or_path", None)
-            merged_model = AutoPeftModelForCausalLM.from_pretrained(
-                checkpoint_dir,
-                **load_kwargs,
-            )
+        except (TypeError, ValueError, OSError) as exc:
+            if verbose:
+                print(f"AutoPeft merge failed ({exc}); falling back to manual PEFT merge.", flush=True)
+            merged_model = None
         if hasattr(merged_model, "merge_and_unload"):
             if verbose:
                 print("Merging LoRA weights into the base model ...", flush=True)
@@ -206,6 +198,8 @@ def _load_and_merge_lora(
             base_model,
             torch_dtype=dtype,
             trust_remote_code=trust_remote_code,
+            device_map=None,
+            low_cpu_mem_usage=False,
         )
         if verbose:
             print(f"Attaching LoRA adapter from {checkpoint_dir} ...", flush=True)
