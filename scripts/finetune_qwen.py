@@ -207,6 +207,9 @@ def main() -> None:
         torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
     )
 
+    if hasattr(model, "config"):
+        model.config.use_cache = False
+
     if args.lora:
         if LoraConfig is None or get_peft_model is None:
             raise ImportError("peft package is required for LoRA fine-tuning. Install with `pip install peft`. ")
@@ -255,24 +258,28 @@ def main() -> None:
     if disable_reason:
         print(disable_reason, flush=True)
 
-    training_args = TrainingArguments(
-        output_dir=str(args.output_dir),
-        learning_rate=args.learning_rate,
-        weight_decay=args.weight_decay,
-        num_train_epochs=args.num_train_epochs,
-        per_device_train_batch_size=args.per_device_train_batch_size,
-        gradient_accumulation_steps=args.gradient_accumulation_steps,
-        max_grad_norm=args.max_grad_norm,
-        warmup_ratio=args.warmup_ratio,
-        save_steps=args.save_steps,
-        logging_steps=args.logging_steps,
-        logging_dir=str(args.tensorboard_dir) if args.tensorboard_dir else None,
-        bf16=torch.cuda.is_available(),
-        fp16=False,
-        gradient_checkpointing=gradient_checkpointing,
-        report_to=["tensorboard"] if args.tensorboard_dir else None,
-        seed=args.seed,
-    )
+    training_kwargs: Dict[str, Any] = {
+        "output_dir": str(args.output_dir),
+        "learning_rate": args.learning_rate,
+        "weight_decay": args.weight_decay,
+        "num_train_epochs": args.num_train_epochs,
+        "per_device_train_batch_size": args.per_device_train_batch_size,
+        "gradient_accumulation_steps": args.gradient_accumulation_steps,
+        "max_grad_norm": args.max_grad_norm,
+        "warmup_ratio": args.warmup_ratio,
+        "save_steps": args.save_steps,
+        "logging_steps": args.logging_steps,
+        "logging_dir": str(args.tensorboard_dir) if args.tensorboard_dir else None,
+        "bf16": torch.cuda.is_available(),
+        "fp16": False,
+        "gradient_checkpointing": gradient_checkpointing,
+        "report_to": ["tensorboard"] if args.tensorboard_dir else None,
+        "seed": args.seed,
+    }
+    if gradient_checkpointing:
+        training_kwargs["gradient_checkpointing_kwargs"] = {"use_reentrant": False}
+
+    training_args = TrainingArguments(**training_kwargs)
 
     trainer = Trainer(
         model=model,
