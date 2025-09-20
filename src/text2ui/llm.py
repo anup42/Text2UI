@@ -46,6 +46,7 @@ class LLMClient:
             )
             if self.tokenizer.pad_token_id is None:
                 self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
+            self.tokenizer.padding_side = "left"
             load_kwargs = dict(trust_remote_code=True)
             use_cuda = torch.cuda.is_available()
             if use_cuda:
@@ -120,5 +121,6 @@ class LLMClient:
 
 def build_stub(callback: Callable[[Conversation], str]) -> StubCallback:
     return callback
+
 
 
