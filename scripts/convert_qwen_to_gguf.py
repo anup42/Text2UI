@@ -431,6 +431,79 @@ def _download_converter(cache_dir: Path, verbose: bool) -> Path:
     destination.write_bytes(payload)
     return destination
 
+_OUTTYPE_ALIASES = {
+    "q4_k_m": "q4_0",
+    "q4_k_s": "q4_1",
+    "q5_k_m": "q5_0",
+    "q5_k_s": "q5_1",
+    "q6_k": "q6_0",
+    "q8_k": "q8_0",
+}
+_OUTTYPE_FALLBACK_ORDER = ("q8_0", "f16", "bf16", "f32", "auto")
+
+
+def _inspect_converter(convert_script: Path) -> dict[str, object]:
+    try:
+        source = convert_script.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return {
+            "accepts_model_flag": True,
+            "accepts_positional_model": False,
+            "accepts_model_type": True,
+            "accepts_outtype_flag": True,
+            "accepts_dtype_flag": False,
+            "outtype_choices": set(),
+        }
+    accepts_model_flag = 'parser.add_argument("--model"' in source
+    accepts_positional_model = 'parser.add_argument("model"' in source
+    accepts_model_type = 'parser.add_argument("--model-type"' in source
+    accepts_outtype_flag = '--outtype' in source
+    accepts_dtype_flag = 'parser.add_argument("--dtype"' in source
+    outtype_choices: set[str] = set()
+    match = re.search(r"--outtype[\s\S]*?choices=\[(.*?)\]", source)
+    if match:
+        for raw in match.group(1).split(','):
+            value = raw.strip().strip("'").strip('"')
+            if value:
+                outtype_choices.add(value)
+    return {
+        "accepts_model_flag": accepts_model_flag,
+        "accepts_positional_model": accepts_positional_model,
+        "accepts_model_type": accepts_model_type,
+        "accepts_outtype_flag": accepts_outtype_flag,
+        "accepts_dtype_flag": accepts_dtype_flag,
+        "outtype_choices": outtype_choices,
+    }
+
+
+def _normalize_outtype(requested: str, supported: set[str]) -> tuple[str, str | None]:
+    requested_lower = requested.lower()
+    normalized_lower = _OUTTYPE_ALIASES.get(requested_lower, requested_lower)
+    supported_lookup = {value.lower(): value for value in supported}
+    message: str | None = None
+    if supported_lookup:
+        if normalized_lower in supported_lookup:
+            selected = supported_lookup[normalized_lower]
+            if selected.lower() != requested_lower:
+                message = f"Requested outtype '{requested}' mapped to '{selected}' for compatibility."
+            return selected, message
+        for candidate in _OUTTYPE_FALLBACK_ORDER:
+            if candidate.lower() in supported_lookup:
+                selected = supported_lookup[candidate.lower()]
+                message = f"Requested outtype '{requested}' not supported; using '{selected}'."
+                return selected, message
+        selected = next(iter(supported_lookup.values()))
+        message = f"Requested outtype '{requested}' not supported; using '{selected}'."
+        return selected, message
+    normalized = _OUTTYPE_ALIASES.get(requested_lower, requested)
+    if isinstance(normalized, str) and normalized.lower() != requested_lower:
+        message = f"Requested outtype '{requested}' mapped to '{normalized}' for compatibility."
+    return normalized if isinstance(normalized, str) else requested, message
+
+
+
+
+
 
 def _find_convert_script(args: argparse.Namespace) -> Path:
     candidates = []
@@ -444,8 +517,9 @@ def _find_convert_script(args: argparse.Namespace) -> Path:
         env_path = Path(env_root)
         candidates.append(env_path / "convert_hf_to_gguf.py")
         candidates.append(env_path / "scripts" / "convert_hf_to_gguf.py")
-    # Relative fallback: ../third_party/llama.cpp
+    # Relative fallback: prefer bundled script inside this repo
     repo_root = Path(__file__).resolve().parents[1]
+    candidates.append(repo_root / "scripts" / "convert_hf_to_gguf.py")
     candidates.append(repo_root / "third_party" / "llama.cpp" / "convert_hf_to_gguf.py")
     candidates.append(repo_root / "third_party" / "llama.cpp" / "scripts" / "convert_hf_to_gguf.py")
 
@@ -470,20 +544,27 @@ def _run_converter(
     verbose: bool,
 ) -> None:
     gguf_out.parent.mkdir(parents=True, exist_ok=True)
-    cmd = [
-        sys.executable,
-        str(convert_script),
-        "--model",
-        str(model_dir),
-        "--outfile",
-        str(gguf_out),
-        "--outtype",
-        outtype,
-    ]
+    features = _inspect_converter(convert_script)
+    selected_outtype, outtype_message = _normalize_outtype(outtype, features["outtype_choices"])
+    cmd = [sys.executable, str(convert_script)]
+    if features["accepts_model_flag"] and not features["accepts_positional_model"]:
+        cmd.extend(["--model", str(model_dir)])
+    else:
+        cmd.append(str(model_dir))
+    cmd.extend(["--outfile", str(gguf_out)])
+    if features["accepts_outtype_flag"]:
+        cmd.extend(["--outtype", selected_outtype])
+    elif features["accepts_dtype_flag"]:
+        cmd.extend(["--dtype", selected_outtype])
     if model_type:
-        cmd.extend(["--model-type", model_type])
+        if features["accepts_model_type"]:
+            cmd.extend(["--model-type", model_type])
+        elif verbose:
+            print("Converter script does not support --model-type; skipping flag.", flush=True)
     if verbose or not run_actual:
         print("Converter command:", " ".join(str(part) for part in cmd), flush=True)
+    if outtype_message and verbose:
+        print(outtype_message, flush=True)
     if run_actual:
         subprocess.run(cmd, check=True)
 
