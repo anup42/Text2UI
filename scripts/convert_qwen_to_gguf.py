@@ -184,8 +184,10 @@ def _load_and_merge_lora(
                 checkpoint_dir,
                 **load_kwargs,
             )
-        except TypeError:
+        except TypeError as exc:
             load_kwargs.pop("base_model", None)
+            if "base_model_name_or_path" in str(exc):
+                load_kwargs.pop("base_model_name_or_path", None)
             merged_model = AutoPeftModelForCausalLM.from_pretrained(
                 checkpoint_dir,
                 **load_kwargs,
