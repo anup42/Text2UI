@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Callable, Iterable, List, Sequence
@@ -36,6 +36,7 @@ class LLMClient:
         self.model_name = model_name
         self.generation = generation
         self.stub_callback = stub_callback
+        self.model_device = torch.device("cpu") if torch is not None else None
         if stub_callback is None:
             if torch is None or AutoTokenizer is None or AutoModelForCausalLM is None:
                 raise RuntimeError("transformers and torch are required when stub_callback is not provided.")
@@ -45,12 +46,28 @@ class LLMClient:
             )
             if self.tokenizer.pad_token_id is None:
                 self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
+            load_kwargs = dict(trust_remote_code=True)
+            use_cuda = torch.cuda.is_available()
+            if use_cuda:
+                try:
+                    import accelerate  # type: ignore
+                except ImportError:
+                    load_kwargs["torch_dtype"] = torch.float16
+                else:
+                    load_kwargs["device_map"] = "auto"
+                    load_kwargs["torch_dtype"] = torch.float16
+            else:
+                load_kwargs["torch_dtype"] = torch.float32
             self.model = AutoModelForCausalLM.from_pretrained(
                 model_name,
-                trust_remote_code=True,
-                torch_dtype=torch.bfloat16,
-                device_map="auto",
+                **load_kwargs,
             )
+            if not use_cuda or "device_map" not in load_kwargs:
+                device = torch.device("cuda") if use_cuda else torch.device("cpu")
+                self.model = self.model.to(device)
+                self.model_device = device
+            else:
+                self.model_device = next(self.model.parameters()).device
         else:
             self.tokenizer = None
             self.model = None
@@ -75,7 +92,9 @@ class LLMClient:
             return_tensors="pt",
             padding=True,
         )
-        inputs = {key: value.to(self.model.device) for key, value in inputs.items()}
+        device = getattr(self, "model_device", None)
+        if device is not None:
+            inputs = {key: tensor.to(device) for key, tensor in inputs.items()}
         with torch.no_grad():
             outputs = self.model.generate(
                 **inputs,
@@ -86,7 +105,8 @@ class LLMClient:
                 pad_token_id=self.tokenizer.pad_token_id,
             )
         generated = []
-        input_lengths = inputs["attention_mask"].sum(dim=1)
+        attention_mask = inputs["attention_mask"].to("cpu") if "attention_mask" in inputs else None
+        input_lengths = attention_mask.sum(dim=1) if attention_mask is not None else torch.tensor([0] * len(outputs))
         for index, sequence in enumerate(outputs):
             prompt_length = input_lengths[index].item()
             completion_tokens = sequence[prompt_length:]
@@ -100,3 +120,5 @@ class LLMClient:
 
 def build_stub(callback: Callable[[Conversation], str]) -> StubCallback:
     return callback
+
+

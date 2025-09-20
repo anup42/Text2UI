@@ -30,15 +30,24 @@ def _build_messages(sample: Dict[str, object], system_prompt: str) -> List[Dict[
     ]
 
 
-def run_ui_pipeline(config: UIGenerationConfig) -> List[Dict[str, object]]:
+def run_ui_pipeline(
+    config: UIGenerationConfig,
+    *,
+    batch_size: int | None = None,
+    max_samples: int | None = None,
+) -> List[Dict[str, object]]:
     voice_samples = list(read_jsonl(config.input_file))
+    if max_samples is not None:
+        voice_samples = voice_samples[: max(0, max_samples)]
     generation_params = GenerationParams(
         max_new_tokens=config.max_new_tokens,
         temperature=config.temperature,
         top_p=config.top_p,
     )
+    effective_batch = max(1, batch_size or config.batch_size)
+    outputs: List[Dict[str, object]] = []
+
     if config.use_stub:
-        outputs = []
         for index, sample in enumerate(voice_samples):
             html = stub_ui_response(sample, seed=index + config.seed)
             outputs.append(
@@ -56,19 +65,21 @@ def run_ui_pipeline(config: UIGenerationConfig) -> List[Dict[str, object]]:
             model_name=config.model_name,
             generation=generation_params,
         )
-        outputs = []
-        for sample in tqdm(voice_samples, desc="ui-samples", unit="sample"):
-            messages = _build_messages(sample, config.system_prompt)
-            completion = client.generate_batch([messages])[0]
-            outputs.append(
-                {
-                    "category": sample.get("category", "unknown"),
-                    "html": completion,
-                    "model": config.model_name,
-                    "generation": asdict(generation_params),
-                    "system_prompt": config.system_prompt.strip(),
-                    "voice_sample": sample,
-                }
-            )
+        for start in tqdm(range(0, len(voice_samples), effective_batch), desc="ui-samples", unit="sample"):
+            batch = voice_samples[start : start + effective_batch]
+            messages_batch = [_build_messages(sample, config.system_prompt) for sample in batch]
+            completions = client.generate_batch(messages_batch)
+            for sample, completion in zip(batch, completions):
+                outputs.append(
+                    {
+                        "category": sample.get("category", "unknown"),
+                        "html": completion,
+                        "model": config.model_name,
+                        "generation": asdict(generation_params),
+                        "system_prompt": config.system_prompt.strip(),
+                        "voice_sample": sample,
+                    }
+                )
     write_jsonl(config.output_file, outputs)
     return outputs
+
