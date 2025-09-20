@@ -35,6 +35,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -152,6 +153,60 @@ def _resolve_base_model(args: argparse.Namespace, adapter_cfg: Dict[str, object]
     )
 
 
+def _prepare_adapter_dir(checkpoint_dir: Path, verbose: bool) -> tuple[Path, Optional[tempfile.TemporaryDirectory[str]]]:
+    """Materialize a CPU-friendly adapter directory, converting DTensors when needed."""
+    weight_candidates = [
+        ("adapter_model.safetensors", "safetensors"),
+        ("adapter_model.bin", "torch"),
+        ("adapter_model.pt", "torch"),
+    ]
+    for filename, kind in weight_candidates:
+        source = checkpoint_dir / filename
+        if not source.exists():
+            continue
+        if kind == "safetensors":
+            try:
+                from safetensors.torch import load_file as load_safetensors, save_file as save_safetensors  # type: ignore
+            except ImportError as exc:  # pragma: no cover - defensive
+                raise ImportError(
+                    "safetensors is required to handle LoRA adapters saved with safe serialization."
+                ) from exc
+            weights = load_safetensors(source)
+            save_fn = save_safetensors
+        else:
+            weights = torch.load(source, map_location="cpu")
+            save_fn = torch.save  # type: ignore[assignment]
+        needs_sanitize = False
+        sanitized: Dict[str, torch.Tensor] = {}
+        for key, value in weights.items():
+            tensor = value
+            if hasattr(tensor, "to_local"):
+                tensor = tensor.to_local()
+                needs_sanitize = True
+            if isinstance(tensor, torch.Tensor):
+                tensor = tensor.to("cpu")
+            if tensor is not value:
+                needs_sanitize = True
+            sanitized[key] = tensor
+        if not needs_sanitize:
+            return checkpoint_dir, None
+        temp_dir = tempfile.TemporaryDirectory(prefix="text2ui_adapter_fix_")
+        prepared_dir = Path(temp_dir.name)
+        for item in checkpoint_dir.iterdir():
+            target = prepared_dir / item.name
+            if item.name == filename:
+                continue
+            if item.is_dir():
+                shutil.copytree(item, target)
+            else:
+                shutil.copy2(item, target)
+        save_fn(sanitized, prepared_dir / filename)
+        if verbose:
+            print(f"Normalized distributed adapter weights -> {prepared_dir}", flush=True)
+        return prepared_dir, temp_dir
+    return checkpoint_dir, None
+
+
 def _load_and_merge_lora(
     checkpoint_dir: Path,
     base_model: str,
@@ -166,50 +221,55 @@ def _load_and_merge_lora(
     dtype = torch.float16 if torch.cuda.is_available() else torch.float32
     merged_model = None
 
-    if AutoPeftModelForCausalLM is not None:
-        if verbose:
-            print("Loading adapter with AutoPeftModelForCausalLM ...", flush=True)
-        load_kwargs = {
-            "torch_dtype": dtype,
-            "trust_remote_code": trust_remote_code,
-            "device_map": None,
-            "low_cpu_mem_usage": False,
-        }
-        try:
-            merged_model = AutoPeftModelForCausalLM.from_pretrained(
-                checkpoint_dir,
-                **load_kwargs,
-            )
-        except (TypeError, ValueError, OSError) as exc:
+    adapter_dir, adapter_cleanup = _prepare_adapter_dir(checkpoint_dir, verbose)
+    try:
+        if AutoPeftModelForCausalLM is not None:
             if verbose:
-                print(f"AutoPeft merge failed ({exc}); falling back to manual PEFT merge.", flush=True)
-            merged_model = None
-        if hasattr(merged_model, "merge_and_unload"):
-            if verbose:
-                print("Merging LoRA weights into the base model ...", flush=True)
-            merged_model = merged_model.merge_and_unload()
+                print("Loading adapter with AutoPeftModelForCausalLM ...", flush=True)
+            load_kwargs = {
+                "torch_dtype": dtype,
+                "trust_remote_code": trust_remote_code,
+                "device_map": None,
+                "low_cpu_mem_usage": False,
+            }
+            try:
+                merged_model = AutoPeftModelForCausalLM.from_pretrained(
+                    adapter_dir,
+                    **load_kwargs,
+                )
+            except (TypeError, ValueError, OSError) as exc:
+                if verbose:
+                    print(f"AutoPeft merge failed ({exc}); falling back to manual PEFT merge.", flush=True)
+                merged_model = None
+            if hasattr(merged_model, "merge_and_unload"):
+                if verbose:
+                    print("Merging LoRA weights into the base model ...", flush=True)
+                merged_model = merged_model.merge_and_unload()
 
-    if merged_model is None:
-        if PeftModel is None:
-            raise RuntimeError("AutoPeftModelForCausalLM unavailable and PeftModel missing.")
-        if verbose:
-            print(f"Loading base model '{base_model}' with dtype={dtype} ...", flush=True)
-        base = AutoModelForCausalLM.from_pretrained(
-            base_model,
-            torch_dtype=dtype,
-            trust_remote_code=trust_remote_code,
-            device_map=None,
-            low_cpu_mem_usage=False,
-        )
-        if verbose:
-            print(f"Attaching LoRA adapter from {checkpoint_dir} ...", flush=True)
-        peft_model = PeftModel.from_pretrained(base, checkpoint_dir, is_trainable=False)
-        if hasattr(peft_model, "merge_and_unload"):
+        if merged_model is None:
+            if PeftModel is None:
+                raise RuntimeError("AutoPeftModelForCausalLM unavailable and PeftModel missing.")
             if verbose:
-                print("Merging LoRA weights into the base model ...", flush=True)
-            merged_model = peft_model.merge_and_unload()
-        else:  # pragma: no cover - unlikely fall-back
-            raise RuntimeError("Installed peft version does not support merge_and_unload().")
+                print(f"Loading base model '{base_model}' with dtype={dtype} ...", flush=True)
+            base = AutoModelForCausalLM.from_pretrained(
+                base_model,
+                torch_dtype=dtype,
+                trust_remote_code=trust_remote_code,
+                device_map=None,
+                low_cpu_mem_usage=False,
+            )
+            if verbose:
+                print(f"Attaching LoRA adapter from {adapter_dir} ...", flush=True)
+            peft_model = PeftModel.from_pretrained(base, adapter_dir, is_trainable=False)
+            if hasattr(peft_model, "merge_and_unload"):
+                if verbose:
+                    print("Merging LoRA weights into the base model ...", flush=True)
+                merged_model = peft_model.merge_and_unload()
+            else:  # pragma: no cover - unlikely fall-back
+                raise RuntimeError("Installed peft version does not support merge_and_unload().")
+    finally:
+        if adapter_cleanup is not None:
+            adapter_cleanup.cleanup()
 
     if merged_model is None:
         raise RuntimeError("Failed to materialize merged LoRA model.")
