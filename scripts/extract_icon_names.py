@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """Batch icon name extraction using Qwen VL models.
 
 Example (single process across all V100 GPUs):
@@ -222,9 +222,9 @@ def generate_icon_names(
             device_inputs = {}
             for key, value in inputs.items():
                 if torch.is_floating_point(value):
-                    device_inputs[key] = value.to(torch_dtype)
+                    device_inputs[key] = value.to(model.device, dtype=torch_dtype)
                 else:
-                    device_inputs[key] = value
+                    device_inputs[key] = value.to(model.device)
 
             with torch.no_grad():
                 generated_ids = model.generate(
@@ -319,3 +319,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
