@@ -186,10 +186,27 @@ def _prepare_adapter_dir(checkpoint_dir: Path, verbose: bool) -> tuple[Path, Opt
         for key, value in weights.items():
             tensor = value
             if DTensor is not None and isinstance(tensor, DTensor):
+                gathered: Optional[torch.Tensor] = None
                 try:
-                    tensor = tensor.full_tensor()
+                    gathered = tensor.full_tensor()
                 except RuntimeError:
-                    tensor = tensor.to_local()
+                    try:
+                        from torch.distributed._tensor.placement_types import Replicate  # type: ignore
+
+                        mesh = getattr(tensor, "device_mesh", None)
+                        if mesh is None:
+                            raise RuntimeError("DTensor is missing device mesh information")
+                        placements = [Replicate()] * mesh.ndim
+                        redistributed = tensor.redistribute(device_mesh=mesh, placements=placements)
+                        gathered = redistributed.to_local()
+                    except Exception as exc:  # pragma: no cover - defensive fallback
+                        raise RuntimeError(
+                            "Failed to materialize DTensor weights. Re-run training with --no_fsdp or install "
+                            "a torch version that supports DTensor.redistribute on CPU."
+                        ) from exc
+                if gathered is None:
+                    raise RuntimeError("Unable to reconstruct DTensor weights from distributed checkpoint shards.")
+                tensor = gathered
                 needs_sanitize = True
             elif hasattr(tensor, "full_tensor"):
                 try:
