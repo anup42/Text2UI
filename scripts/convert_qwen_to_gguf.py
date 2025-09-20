@@ -46,6 +46,11 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 try:  # pragma: no cover - optional dependency
+    from torch.distributed._tensor import DTensor  # type: ignore
+except Exception:  # pragma: no cover - torch may not provide DTensor
+    DTensor = None  # type: ignore
+
+try:  # pragma: no cover - optional dependency
     from peft import AutoPeftModelForCausalLM, PeftModel  # type: ignore
 except ImportError:  # pragma: no cover
     AutoPeftModelForCausalLM = None  # type: ignore
@@ -180,6 +185,18 @@ def _prepare_adapter_dir(checkpoint_dir: Path, verbose: bool) -> tuple[Path, Opt
         sanitized: Dict[str, torch.Tensor] = {}
         for key, value in weights.items():
             tensor = value
+            if DTensor is not None and isinstance(tensor, DTensor):
+                try:
+                    tensor = tensor.full_tensor()
+                except RuntimeError:
+                    tensor = tensor.to_local()
+                needs_sanitize = True
+            elif hasattr(tensor, "full_tensor"):
+                try:
+                    tensor = tensor.full_tensor()
+                    needs_sanitize = True
+                except RuntimeError:
+                    tensor = tensor
             if hasattr(tensor, "to_local"):
                 tensor = tensor.to_local()
                 needs_sanitize = True
