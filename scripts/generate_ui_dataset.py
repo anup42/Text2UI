@@ -1,4 +1,4 @@
-﻿import argparse
+import argparse
 from pathlib import Path
 
 from text2ui.config import UIGenerationConfig, load_ui_config
@@ -12,6 +12,9 @@ def main() -> None:
     parser.add_argument("--output", type=Path, help="Override output file path")
     parser.add_argument("--input", type=Path, help="Override input voice dataset path")
     parser.add_argument("--use-stub", action="store_true", help="Use deterministic stub generator")
+    parser.add_argument("--batch-size", type=int, help="Override batch size for generation")
+    parser.add_argument("--max-new-tokens", type=int, help="Override max new tokens per sample")
+    parser.add_argument("--num-samples", type=int, help="Limit number of input records processed")
     args = parser.parse_args()
 
     config = load_ui_config(args.config)
@@ -23,8 +26,14 @@ def main() -> None:
         config.input_file = args.input
     if args.use_stub:
         config.use_stub = True
+    if args.batch_size:
+        config.batch_size = max(1, args.batch_size)
+    if args.max_new_tokens:
+        config.max_new_tokens = args.max_new_tokens
 
-    results = run_ui_pipeline(config)
+    limit = args.num_samples
+
+    results = run_ui_pipeline(config, batch_size=config.batch_size, max_samples=limit)
     print(f"Generated {len(results)} UI samples -> {config.output_file}")
 
 
