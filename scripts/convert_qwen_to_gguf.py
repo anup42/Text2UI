@@ -152,8 +152,10 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     if args.dry_run:
         args.run_converter = False
 
+    repo_default = Path(__file__).resolve().parents[1] / "third_party" / "llama.cpp"
     if args.converter_cache_dir is None:
-        cache_default = Path(os.environ.get("TEXT2UI_CONVERTER_CACHE", "~/.cache/text2ui/llama_cpp"))
+        env_override = os.environ.get("TEXT2UI_CONVERTER_CACHE")
+        cache_default = Path(env_override) if env_override else repo_default
     else:
         cache_default = args.converter_cache_dir
     args.converter_cache_dir = cache_default.expanduser().resolve()
