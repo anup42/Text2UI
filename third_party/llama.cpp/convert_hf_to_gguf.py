@@ -11,7 +11,7 @@ import json
 import os
 import re
 import sys
-from enum import IntEnum
+from enum import Enum, IntEnum
 from pathlib import Path
 from hashlib import sha256
 from typing import TYPE_CHECKING, Any, Callable, ContextManager, Iterable, Iterator, Literal, Sequence, TypeVar, cast
@@ -28,7 +28,14 @@ if TYPE_CHECKING:
 if 'NO_LOCAL_GGUF' not in os.environ:
     sys.path.insert(1, str(Path(__file__).parent / 'gguf-py'))
 import gguf
-from gguf.vocab import MistralTokenizerType, MistralVocab
+try:
+    from gguf.vocab import MistralTokenizerType, MistralVocab
+except ImportError:  # pragma: no cover - older gguf versions
+    from gguf.vocab import MistralVocab
+
+    class MistralTokenizerType(Enum):
+        spm = "spm"
+        tekken = "tekken"
 from mistral_common.tokens.tokenizers.base import TokenizerVersion
 from mistral_common.tokens.tokenizers.multimodal import DATASET_MEAN, DATASET_STD
 from mistral_common.tokens.tokenizers.tekken import Tekkenizer
