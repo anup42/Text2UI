@@ -45,8 +45,9 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 try:  # pragma: no cover - optional dependency
-    from peft import PeftModel  # type: ignore
+    from peft import AutoPeftModelForCausalLM, PeftModel  # type: ignore
 except ImportError:  # pragma: no cover
+    AutoPeftModelForCausalLM = None  # type: ignore
     PeftModel = None  # type: ignore
 
 
@@ -158,34 +159,77 @@ def _load_and_merge_lora(
     trust_remote_code: bool,
     verbose: bool,
 ) -> None:
-    if PeftModel is None:
+    if AutoPeftModelForCausalLM is None and PeftModel is None:
         raise ImportError(
             "peft is not installed. Install it with `pip install peft` to merge LoRA adapters."
         )
     dtype = torch.float16 if torch.cuda.is_available() else torch.float32
-    if verbose:
-        print(f"Loading base model '{base_model}' with dtype={dtype} ...", flush=True)
-    base = AutoModelForCausalLM.from_pretrained(
-        base_model,
-        torch_dtype=dtype,
-        trust_remote_code=trust_remote_code,
-    )
-    if verbose:
-        print(f"Attaching LoRA adapter from {checkpoint_dir} ...", flush=True)
-    peft_model = PeftModel.from_pretrained(base, checkpoint_dir, is_trainable=False)
-    if hasattr(peft_model, "merge_and_unload"):
+    merged_model = None
+
+    if AutoPeftModelForCausalLM is not None:
         if verbose:
-            print("Merging LoRA weights into the base model ...", flush=True)
-        merged = peft_model.merge_and_unload()
-    else:  # pragma: no cover - unlikely fall-back
-        raise RuntimeError("Installed peft version does not support merge_and_unload().")
-    if hasattr(merged, "tie_weights"):
-        merged.tie_weights()
+            print("Loading adapter with AutoPeftModelForCausalLM ...", flush=True)
+        load_kwargs = {
+            "torch_dtype": dtype,
+            "trust_remote_code": trust_remote_code,
+        }
+        device_map = "cpu" if not torch.cuda.is_available() else "auto"
+        load_kwargs["device_map"] = device_map
+        # Newer PEFT builds expect `base_model_name_or_path`, older ones accept `base_model`.
+        if base_model:
+            load_kwargs["base_model_name_or_path"] = base_model
+            load_kwargs.setdefault("base_model", base_model)
+        try:
+            merged_model = AutoPeftModelForCausalLM.from_pretrained(
+                checkpoint_dir,
+                **load_kwargs,
+            )
+        except TypeError:
+            load_kwargs.pop("base_model", None)
+            merged_model = AutoPeftModelForCausalLM.from_pretrained(
+                checkpoint_dir,
+                **load_kwargs,
+            )
+        if hasattr(merged_model, "merge_and_unload"):
+            if verbose:
+                print("Merging LoRA weights into the base model ...", flush=True)
+            merged_model = merged_model.merge_and_unload()
+
+    if merged_model is None:
+        if PeftModel is None:
+            raise RuntimeError("AutoPeftModelForCausalLM unavailable and PeftModel missing.")
+        if verbose:
+            print(f"Loading base model '{base_model}' with dtype={dtype} ...", flush=True)
+        base = AutoModelForCausalLM.from_pretrained(
+            base_model,
+            torch_dtype=dtype,
+            trust_remote_code=trust_remote_code,
+        )
+        if verbose:
+            print(f"Attaching LoRA adapter from {checkpoint_dir} ...", flush=True)
+        peft_model = PeftModel.from_pretrained(base, checkpoint_dir, is_trainable=False)
+        if hasattr(peft_model, "merge_and_unload"):
+            if verbose:
+                print("Merging LoRA weights into the base model ...", flush=True)
+            merged_model = peft_model.merge_and_unload()
+        else:  # pragma: no cover - unlikely fall-back
+            raise RuntimeError("Installed peft version does not support merge_and_unload().")
+
+    if merged_model is None:
+        raise RuntimeError("Failed to materialize merged LoRA model.")
+
+    if hasattr(merged_model, "tie_weights"):
+        merged_model.tie_weights()
+    target_dtype = torch.float16 if dtype in (torch.float16, torch.bfloat16) else torch.float32
+    merged_model = merged_model.to(dtype=target_dtype, device="cpu")
+
     output_dir.mkdir(parents=True, exist_ok=True)
     if verbose:
         print(f"Saving merged model to {output_dir} ...", flush=True)
-    merged.save_pretrained(output_dir)
-    tokenizer = AutoTokenizer.from_pretrained(base_model, trust_remote_code=trust_remote_code)
+    merged_model.save_pretrained(output_dir)
+
+    tokenizer_source = base_model if base_model else checkpoint_dir
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_source, trust_remote_code=trust_remote_code)
     tokenizer.save_pretrained(output_dir)
 
 
