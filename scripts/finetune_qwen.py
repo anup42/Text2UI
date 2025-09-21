@@ -66,6 +66,19 @@ def _normalise_whitespace(text: str) -> str:
     return "\n".join(line.rstrip() for line in text.strip().splitlines()) if text else ""
 
 
+def _read_json_array(path: Path) -> Iterable[Dict[str, Any]]:
+    with path.open("r", encoding="utf-8") as handle:
+        data = json.load(handle)
+
+    if not isinstance(data, list):
+        raise ValueError(f"Expected a list of objects in {path}, found {type(data).__name__}")
+
+    for row in data:
+        if not isinstance(row, dict):
+            raise ValueError("JSON dataset entries must be objects containing 'input' and 'output' fields")
+        yield row
+
+
 def _extract_fenced_block(text: str) -> Tuple[str, Optional[str]]:
     """Return the content of a fenced code block if present.
 
@@ -166,6 +179,26 @@ def _build_html_examples(path: Path, system_prompt: str) -> List[ConversationExa
     return examples
 
 
+def _build_io_examples(path: Path, system_prompt: str) -> List[ConversationExample]:
+    examples: List[ConversationExample] = []
+    for row in _read_json_array(path):
+        user_prompt = _normalise_whitespace(str(row.get("input", "")))
+        assistant_output = _normalise_whitespace(str(row.get("output", "")))
+        if not user_prompt or not assistant_output:
+            # Skip incomplete rows to avoid blank conversations that harm training.
+            continue
+        examples.append(
+            ConversationExample(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                    {"role": "assistant", "content": assistant_output},
+                ]
+            )
+        )
+    return examples
+
+
 def _apply_chat_template(tokenizer: AutoTokenizer, messages: Sequence[Dict[str, str]]) -> str:
     if hasattr(tokenizer, "apply_chat_template"):
         return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
@@ -180,8 +213,7 @@ def _apply_chat_template(tokenizer: AutoTokenizer, messages: Sequence[Dict[str, 
 
 def _build_dataset(
     tokenizer: AutoTokenizer,
-    voice_examples: List[ConversationExample],
-    html_examples: List[ConversationExample],
+    dataset_examples: Dict[str, List[ConversationExample]],
     mix_ratio: float,
 ) -> Dataset:
     def make_dataset(examples: List[ConversationExample], source: str) -> Optional[Dataset]:
@@ -190,21 +222,67 @@ def _build_dataset(
         records = [{"messages": example.messages, "source": source} for example in examples]
         return Dataset.from_list(records)
 
-    voice_ds = make_dataset(voice_examples, "voice")
-    html_ds = make_dataset(html_examples, "html")
+    voice_ds = make_dataset(dataset_examples.get("voice", []), "voice")
+    html_ds = make_dataset(dataset_examples.get("html", []), "html")
+    json_ds = make_dataset(dataset_examples.get("json", []), "json")
 
-    if voice_ds and html_ds:
+    dataset_entries: List[Tuple[str, Dataset]] = []
+    if voice_ds:
+        dataset_entries.append(("voice", voice_ds))
+    if html_ds:
+        dataset_entries.append(("html", html_ds))
+    if json_ds:
+        dataset_entries.append(("json", json_ds))
+
+    if not dataset_entries:
+        raise ValueError("No datasets available to build the training set.")
+
+    # Determine sampling weights
+    weights_map: Dict[str, float] = {}
+    if voice_ds and (html_ds or json_ds):
         ratio = max(0.0, min(1.0, mix_ratio))
-        if ratio <= 0.0:
-            dataset = html_ds
-        elif ratio >= 1.0:
-            dataset = voice_ds
-        else:
-            dataset = interleave_datasets(
-                [voice_ds, html_ds], probabilities=[ratio, 1.0 - ratio], seed=42, stopping_strategy="all_exhausted"
-            )
+        weights_map["voice"] = ratio
+        html_targets = [name for name in ("html", "json") if dataset_examples.get(name)]
+        remaining_weight = max(0.0, 1.0 - ratio)
+        if html_targets:
+            share = remaining_weight / len(html_targets) if remaining_weight > 0 else 0.0
+            for name in html_targets:
+                weights_map[name] = share
+    elif voice_ds:
+        weights_map["voice"] = 1.0
     else:
-        dataset = voice_ds or html_ds
+        html_targets = [name for name in ("html", "json") if dataset_examples.get(name)]
+        if html_targets:
+            share = 1.0 / len(html_targets)
+            for name in html_targets:
+                weights_map[name] = share
+
+    datasets: List[Dataset] = []
+    weights: List[float] = []
+    for name, ds in dataset_entries:
+        weight = max(weights_map.get(name, 0.0), 0.0)
+        if weight == 0.0 and len(dataset_entries) > 1:
+            # Exclude datasets with zero weight when mixing multiple sources.
+            continue
+        datasets.append(ds)
+        weights.append(weight if weight > 0 else 1.0)
+
+    if len(datasets) == 1:
+        dataset = datasets[0]
+    else:
+        total_weight = sum(weights)
+        if total_weight <= 0:
+            weights = [1.0 for _ in datasets]
+            total_weight = float(len(datasets))
+
+        probabilities = [weight / total_weight for weight in weights]
+
+        dataset = interleave_datasets(
+            datasets,
+            probabilities=probabilities,
+            seed=42,
+            stopping_strategy="all_exhausted",
+        )
 
     def tokenize(batch: Dict[str, Any]) -> Dict[str, Any]:
         chats = [_apply_chat_template(tokenizer, messages) for messages in batch["messages"]]
@@ -223,6 +301,7 @@ def _preview_examples(
     tokenizer: AutoTokenizer,
     voice_examples: Sequence[ConversationExample],
     html_examples: Sequence[ConversationExample],
+    json_examples: Sequence[ConversationExample],
 ) -> None:
     """Print a processed sample for each dataset so preprocessing can be inspected."""
 
@@ -236,6 +315,7 @@ def _preview_examples(
 
     preview("voice", voice_examples[0] if voice_examples else None)
     preview("HTML", html_examples[0] if html_examples else None)
+    preview("JSON", json_examples[0] if json_examples else None)
 
 
 def main() -> None:
@@ -244,11 +324,16 @@ def main() -> None:
     parser.add_argument("--output-dir", required=True, help="Directory to store checkpoints")
     parser.add_argument("--voice-dataset", type=Path, default=Path("data/samples/voice_assistant_outputs.jsonl"))
     parser.add_argument("--html-dataset", type=Path, default=Path("data/samples/voice_to_ui_components.jsonl"))
+    parser.add_argument("--json-dataset", type=Path, default=None,
+                        help="Optional JSON file containing a list of objects with 'input'/'output' fields.")
     parser.add_argument("--train-voice", action="store_true", help="Include voice assistant dataset")
     parser.add_argument("--train-html", action="store_true", help="Include HTML dataset")
+    parser.add_argument("--train-json", action="store_true", help="Include generic input/output JSON dataset")
     parser.add_argument("--voice-system-prompt", default="You are a production-grade voice assistant.")
     parser.add_argument("--html-system-prompt", default="You are an expert front-end engineer producing accessible HTML/CSS.")
-    parser.add_argument("--mix-ratio", type=float, default=0.5, help="Relative sampling ratio of voice examples vs HTML")
+    parser.add_argument("--json-system-prompt", default="You are an expert front-end engineer producing accessible HTML/CSS.")
+    parser.add_argument("--mix-ratio", type=float, default=0.5,
+                        help="Relative sampling ratio of voice examples vs HTML/JSON datasets")
     parser.add_argument("--lora", action="store_true", help="Enable LoRA fine-tuning instead of full fine-tune")
     parser.add_argument("--lora-r", type=int, default=16)
     parser.add_argument("--lora-alpha", type=int, default=32)
@@ -268,7 +353,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
-    if not args.train_voice and not args.train_html:
+    if not args.train_voice and not args.train_html and not args.train_json:
         args.train_voice = True
         args.train_html = True
 
@@ -278,6 +363,7 @@ def main() -> None:
 
     voice_examples: List[ConversationExample] = []
     html_examples: List[ConversationExample] = []
+    json_examples: List[ConversationExample] = []
 
     if args.train_voice:
         if not args.voice_dataset.exists():
@@ -287,13 +373,23 @@ def main() -> None:
         if not args.html_dataset.exists():
             raise FileNotFoundError(f"HTML dataset not found: {args.html_dataset}")
         html_examples = _build_html_examples(args.html_dataset, args.html_system_prompt)
+    if args.train_json:
+        if args.json_dataset is None:
+            raise ValueError("--train-json requires --json-dataset to be specified")
+        if not args.json_dataset.exists():
+            raise FileNotFoundError(f"JSON dataset not found: {args.json_dataset}")
+        json_examples = _build_io_examples(args.json_dataset, args.json_system_prompt)
 
-    if not voice_examples and not html_examples:
-        raise ValueError("No training data selected. Enable --train-voice and/or --train-html.")
+    if not voice_examples and not html_examples and not json_examples:
+        raise ValueError("No training data selected. Enable --train-voice, --train-html, and/or --train-json.")
 
-    _preview_examples(tokenizer, voice_examples, html_examples)
+    _preview_examples(tokenizer, voice_examples, html_examples, json_examples)
 
-    dataset = _build_dataset(tokenizer, voice_examples, html_examples, args.mix_ratio)
+    dataset = _build_dataset(
+        tokenizer,
+        {"voice": voice_examples, "html": html_examples, "json": json_examples},
+        args.mix_ratio,
+    )
 
     model = AutoModelForCausalLM.from_pretrained(
         args.model_name,
