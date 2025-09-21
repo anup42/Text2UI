@@ -180,6 +180,19 @@ def _build_html_examples(path: Path, system_prompt: str) -> List[ConversationExa
 
 
 def _build_io_examples(path: Path, system_prompt: str) -> List[ConversationExample]:
+    if path.is_dir():
+        json_files = sorted(p for p in path.glob("*.json") if p.is_file())
+        if not json_files:
+            raise ValueError(f"No JSON files found in directory: {path}")
+        examples: List[ConversationExample] = []
+        for json_file in json_files:
+            examples.extend(_build_io_examples_from_file(json_file, system_prompt))
+        return examples
+
+    return _build_io_examples_from_file(path, system_prompt)
+
+
+def _build_io_examples_from_file(path: Path, system_prompt: str) -> List[ConversationExample]:
     examples: List[ConversationExample] = []
     for row in _read_json_array(path):
         user_prompt = _normalise_whitespace(str(row.get("input", "")))
@@ -324,8 +337,12 @@ def main() -> None:
     parser.add_argument("--output-dir", required=True, help="Directory to store checkpoints")
     parser.add_argument("--voice-dataset", type=Path, default=Path("data/samples/voice_assistant_outputs.jsonl"))
     parser.add_argument("--html-dataset", type=Path, default=Path("data/samples/voice_to_ui_components.jsonl"))
-    parser.add_argument("--json-dataset", type=Path, default=None,
-                        help="Optional JSON file containing a list of objects with 'input'/'output' fields.")
+    parser.add_argument(
+        "--json-dataset",
+        type=Path,
+        default=None,
+        help="Optional directory of JSON files containing 'input'/'output' fields.",
+    )
     parser.add_argument("--train-voice", action="store_true", help="Include voice assistant dataset")
     parser.add_argument("--train-html", action="store_true", help="Include HTML dataset")
     parser.add_argument("--train-json", action="store_true", help="Include generic input/output JSON dataset")
@@ -378,6 +395,8 @@ def main() -> None:
             raise ValueError("--train-json requires --json-dataset to be specified")
         if not args.json_dataset.exists():
             raise FileNotFoundError(f"JSON dataset not found: {args.json_dataset}")
+        if not args.json_dataset.is_dir():
+            raise NotADirectoryError(f"Expected JSON dataset directory, found: {args.json_dataset}")
         json_examples = _build_io_examples(args.json_dataset, args.json_system_prompt)
 
     if not voice_examples and not html_examples and not json_examples:
