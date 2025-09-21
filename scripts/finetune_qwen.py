@@ -28,10 +28,10 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Sequence
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import torch
-from datasets import Dataset, concatenate_datasets
+from datasets import Dataset, interleave_datasets
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
@@ -62,9 +62,57 @@ def _read_jsonl(path: Path) -> Iterable[Dict[str, Any]]:
             yield json.loads(line)
 
 
+def _normalise_whitespace(text: str) -> str:
+    return "\n".join(line.rstrip() for line in text.strip().splitlines()) if text else ""
+
+
+def _extract_fenced_block(text: str) -> Tuple[str, Optional[str]]:
+    """Return the content of a fenced code block if present.
+
+    Parameters
+    ----------
+    text:
+        Raw assistant output potentially containing a fenced block. The function
+        expects Markdown-style triple backticks but is resilient to missing
+        closing fences.
+
+    Returns
+    -------
+    Tuple[str, Optional[str]]
+        The extracted fenced block (or the original text if no fence is
+        detected) and any trailing commentary after the closing fence.
+    """
+
+    if not text:
+        return "", None
+
+    stripped = text.strip()
+    if not stripped.startswith("```"):
+        return stripped, None
+
+    lines = stripped.splitlines()
+    # Drop the opening fence which may include a language hint (e.g., ```html)
+    lines_iter = iter(lines[1:])
+    extracted_lines: List[str] = []
+    closing_index: Optional[int] = None
+    for idx, line in enumerate(lines_iter, start=1):
+        if line.startswith("```"):
+            closing_index = idx
+            break
+        extracted_lines.append(line)
+
+    if closing_index is None:
+        return "\n".join(extracted_lines).strip(), None
+
+    tail = lines[closing_index + 1 :]
+    trailing_commentary = "\n".join(tail).strip() if tail else None
+    return "\n".join(extracted_lines).strip(), trailing_commentary or None
+
+
 def _build_voice_examples(path: Path, system_prompt: str) -> List[ConversationExample]:
     examples: List[ConversationExample] = []
     for row in _read_jsonl(path):
+        voice_system_prompt = row.get("system_prompt") or system_prompt
         user_parts = [
             f"Category: {row.get('category', 'unknown')}",
             f"Persona: {row.get('persona', 'anonymous')}",
@@ -72,11 +120,11 @@ def _build_voice_examples(path: Path, system_prompt: str) -> List[ConversationEx
             f"Request: {row.get('user_prompt', '')}",
         ]
         user_prompt = "\n".join(user_parts)
-        assistant = row.get("assistant_output", "")
+        assistant = _normalise_whitespace(row.get("assistant_output", ""))
         examples.append(
             ConversationExample(
                 messages=[
-                    {"role": "system", "content": system_prompt},
+                    {"role": "system", "content": voice_system_prompt},
                     {"role": "user", "content": user_prompt},
                     {"role": "assistant", "content": assistant},
                 ]
@@ -90,16 +138,26 @@ def _build_html_examples(path: Path, system_prompt: str) -> List[ConversationExa
     for row in _read_jsonl(path):
         voice_sample = row.get("voice_sample", {}) or {}
         user_prompt = voice_sample.get("user_prompt", "Design an interface")
+        persona = voice_sample.get("persona", row.get("persona", ""))
+        locale = voice_sample.get("locale", row.get("locale", ""))
+        voice_response = voice_sample.get("assistant_output", "")
         context_lines = [
             f"Category: {row.get('category', 'UI')}",
-            f"Original prompt: {user_prompt}",
+            f"Persona: {persona or 'unspecified'}",
+            f"Locale: {locale or 'global'}",
+            f"Voice user prompt: {user_prompt}",
+            "Voice assistant response:",
+            _normalise_whitespace(voice_response),
             "Instruction: Produce production-quality HTML/CSS for the voice response.",
         ]
-        assistant_output = row.get("html", row.get("assistant_output", ""))
+        raw_assistant = row.get("html", row.get("assistant_output", ""))
+        assistant_output, _ = _extract_fenced_block(raw_assistant)
+        assistant_output = _normalise_whitespace(assistant_output)
+        html_system_prompt = row.get("system_prompt") or system_prompt
         examples.append(
             ConversationExample(
                 messages=[
-                    {"role": "system", "content": system_prompt},
+                    {"role": "system", "content": html_system_prompt},
                     {"role": "user", "content": "\n".join(context_lines)},
                     {"role": "assistant", "content": assistant_output},
                 ]
@@ -126,12 +184,27 @@ def _build_dataset(
     html_examples: List[ConversationExample],
     mix_ratio: float,
 ) -> Dataset:
-    records: List[Dict[str, Any]] = []
-    for example in voice_examples:
-        records.append({"messages": example.messages, "source": "voice"})
-    for example in html_examples:
-        records.append({"messages": example.messages, "source": "html"})
-    dataset = Dataset.from_list(records)
+    def make_dataset(examples: List[ConversationExample], source: str) -> Optional[Dataset]:
+        if not examples:
+            return None
+        records = [{"messages": example.messages, "source": source} for example in examples]
+        return Dataset.from_list(records)
+
+    voice_ds = make_dataset(voice_examples, "voice")
+    html_ds = make_dataset(html_examples, "html")
+
+    if voice_ds and html_ds:
+        ratio = max(0.0, min(1.0, mix_ratio))
+        if ratio <= 0.0:
+            dataset = html_ds
+        elif ratio >= 1.0:
+            dataset = voice_ds
+        else:
+            dataset = interleave_datasets(
+                [voice_ds, html_ds], probabilities=[ratio, 1.0 - ratio], seed=42, stopping_strategy="all_exhausted"
+            )
+    else:
+        dataset = voice_ds or html_ds
 
     def tokenize(batch: Dict[str, Any]) -> Dict[str, Any]:
         chats = [_apply_chat_template(tokenizer, messages) for messages in batch["messages"]]
@@ -144,6 +217,25 @@ def _build_dataset(
         return tokenized
 
     return dataset.map(tokenize, batched=True, remove_columns=dataset.column_names)
+
+
+def _preview_examples(
+    tokenizer: AutoTokenizer,
+    voice_examples: Sequence[ConversationExample],
+    html_examples: Sequence[ConversationExample],
+) -> None:
+    """Print a processed sample for each dataset so preprocessing can be inspected."""
+
+    def preview(label: str, example: Optional[ConversationExample]) -> None:
+        print(f"=== Processed {label} sample ===", flush=True)
+        if example is None:
+            print(f"(no {label.lower()} examples loaded)\n", flush=True)
+            return
+        rendered = _apply_chat_template(tokenizer, example.messages)
+        print(f"{rendered}\n", flush=True)
+
+    preview("voice", voice_examples[0] if voice_examples else None)
+    preview("HTML", html_examples[0] if html_examples else None)
 
 
 def main() -> None:
@@ -198,6 +290,8 @@ def main() -> None:
 
     if not voice_examples and not html_examples:
         raise ValueError("No training data selected. Enable --train-voice and/or --train-html.")
+
+    _preview_examples(tokenizer, voice_examples, html_examples)
 
     dataset = _build_dataset(tokenizer, voice_examples, html_examples, args.mix_ratio)
 
