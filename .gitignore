@@ -7,3 +7,5 @@
 .idea/
 .vscode/
 .DS_Store
+configs/api_keys.json
+configs/api_keys2.json

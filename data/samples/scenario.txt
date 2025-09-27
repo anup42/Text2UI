@@ -1,0 +1,2100 @@
+ Weather report
+ Time and date
+ Alarm set confirmation
+ Timer start/stop confirmation
+ Reminder creation confirmation
+ Daily calendar overview
+ Event scheduling confirmation
+ Directions summary
+ Traffic update
+ Nearby places list
+ Flight search results
+ Flight status update
+ Train status/PNR update
+ Package tracking status
+ News headlines
+ Sports scores
+ Stock quotes/movers
+ Currency conversion result
+ Unit conversion result
+ Calculator result
+ Translation result
+ Dictionary definition
+ Wikipedia summary
+ Joke delivery
+ Trivia answer
+ Music playback confirmation
+ Podcast playback confirmation
+ Radio station start
+ Smart home device control ack
+ Thermostat setting change ack
+ Lights on/off ack
+ Call initiation confirmation
+ Message send confirmation
+ Email triage summary
+ Shopping list update
+ Recipe suggestion
+ Restaurant recommendations
+ Hotel search results
+ Ride-hailing fare/ETA estimates
+ Bank balance inquiry
+ Bill payment confirmation
+ Meeting join link
+ Note saved confirmation
+ Battery/system status
+ App launch confirmation
+ Weather alert notification
+ Health metrics summary
+ Meditation session start
+ Timer completion alert
+ Generic search results summary
+ Sunrise time
+ Sunset time
+ Moon phase
+ UV index
+ Air quality
+ Pollen count
+ Humidity level
+ Wind speed
+ Rain chance
+ Storm alert
+ Fog advisory
+ Heat advisory
+ Cold advisory
+ Dew point
+ Cloud cover
+ Visibility range
+ Feels-like temp
+ Pressure trend
+ Hourly weather
+ Daily forecast
+ Weekend forecast
+ -day forecast
+ Weather radar
+ Weather summary
+ Weather alert
+ Local time
+ World clock
+ Time difference
+ Timezone convert
+ Date today
+ Week number
+ Day of week
+ Calendar today
+ Calendar week
+ Calendar month
+ Agenda view
+ Free/busy slots
+ Next meeting
+ Create event
+ Update event
+ Move event
+ Cancel event
+ Invite attendees
+ Add room
+ Add video link
+ Accept invite
+ Decline invite
+ Maybe response
+ Event reminder
+ List reminders
+ Create reminder
+ Edit reminder
+ Delete reminder
+ Snooze reminder
+ Alarm set
+ Alarm list
+ Alarm edit
+ Alarm delete
+ Alarm skip
+ Timer start
+ Timer pause
+ Timer resume
+ Timer cancel
+ Timer list
+ Stopwatch start
+ Stopwatch lap
+ Stopwatch stop
+ Pomodoro start
+ Pomodoro pause
+ Pomodoro reset
+ Focus mode on
+ Focus mode off
+ Do Not Disturb on
+ Do Not Disturb off
+ Silent mode on
+ Silent mode off
+ Volume up
+ Volume down
+ Mute volume
+ Brightness up
+ Brightness down
+ Night mode on
+ Night mode off
+ Battery level
+ Battery saver on
+ Battery saver off
+ Storage status
+ Clear cache
+ Open settings
+ Wi-Fi on
+ Wi-Fi off
+ Wi-Fi status
+ Bluetooth on
+ Bluetooth off
+ Bluetooth status
+ Hotspot on
+ Hotspot off
+ Airplane mode on
+ Airplane mode off
+ Mobile data on
+ Mobile data off
+ NFC on
+ NFC off
+ Flashlight on
+ Flashlight off
+ Screenshot now
+ Screen record start
+ Screen record stop
+ App open
+ App install
+ App update
+ App uninstall
+ App usage time
+ Open camera
+ Take photo
+ Record video
+ Selfie photo
+ Switch camera
+ Scan QR
+ Scan document
+ Translate camera
+ Read text aloud
+ Magnifier on
+ Color filter on
+ Live captions on
+ Live captions off
+ Caption language
+ Voice typing on
+ Voice typing off
+ Dictation start
+ Dictation stop
+ Accessibility menu
+ Assistive touch on
+ Assistive touch off
+ Read notifications
+ Clear notifications
+ Notification summary
+ Silence app
+ Allow app
+ Search web
+ Quick answer
+ Define word
+ Synonyms list
+ Antonyms list
+ Spell check
+ Grammar check
+ Translate phrase
+ Language detect
+ Pronounce word
+ Word of day
+ Quick math
+ Percentage calc
+ Tip calculator
+ Split bill
+ Unit convert
+ Temperature convert
+ Length convert
+ Weight convert
+ Volume convert
+ Speed convert
+ Area convert
+ Time convert
+ Currency convert
+ Exchange rates
+ Crypto prices
+ Stock price
+ Index summary
+ Market movers
+ Earnings today
+ Dividend dates
+ Split calendar
+ Portfolio value
+ Day P\&L
+ -week range
+ Analyst rating
+ News headlines
+ Tech news
+ Business news
+ Sports news
+ World news
+ Local news
+ Entertainment news
+ Science news
+ Health news
+ Weather news
+ Trending topics
+ Fact check
+ Breaking alert
+ Save article
+ Open article
+ Sports scores
+ Live match
+ Cricket score
+ Football score
+ Basketball score
+ Tennis score
+ Formula grid
+ Golf leaderboard
+ IPL table
+ EPL table
+ NBA standings
+ Match schedule
+ Team fixtures
+ Player stats
+ Fantasy tips
+ Set favorite team
+ Remove favorite team
+ Nearby restaurants
+ Top rated places
+ Open now filter
+ Veg only filter
+ Price filter
+ Distance filter
+ Cuisine filter
+ Restaurant details
+ Call restaurant
+ Book table
+ Order food
+ Track order
+ Reorder items
+ Cancel order
+ Apply coupon
+ Check bill
+ Split bill
+ Nutrition info
+ Recipe idea
+ Quick recipe
+ Cooking timer
+ Grocery list
+ Add to list
+ Remove from list
+ Clear list
+ Shopping deals
+ Price drop alert
+ Product compare
+ Product reviews
+ Product specs
+ Add to cart
+ Checkout now
+ Track package
+ Return item
+ Refund status
+ Warranty info
+ Store hours
+ Pharmacy nearby
+ Medicine reminder
+ Pill tracker
+ Water reminder
+ Sleep summary
+ Sleep schedule
+ Steps today
+ Calories today
+ Heart rate
+ SpOlevel
+ Stress score
+ Workout start
+ Workout pause
+ Workout stop
+ Workout summary
+ Running route
+ Cycling route
+ Yoga session
+ Meditation start
+ Meditation end
+ Breathe exercise
+ Posture alert
+ Period tracker
+ Fertility window
+ Vaccination card
+ Health records
+ Emergency info
+ SOS call
+ Nearest hospital
+ Nearest police
+ Nearest fire
+ Blood bank info
+ Ambulance number
+ COVID centers
+ Air quality map
+ Heatmap view
+ Map search
+ Recent places
+ Home address
+ Work address
+ Save place
+ Share location
+ Live location
+ ETA to home
+ ETA to work
+ Start navigation
+ Route options
+ Avoid tolls
+ Avoid ferries
+ Avoid highways
+ Traffic now
+ Traffic incidents
+ Speed camera alert
+ Parking nearby
+ Gas prices
+ EV charger nearby
+ Public transit routes
+ Bus times
+ Train times
+ Metro times
+ Platform number
+ Seat availability
+ PNR status
+ Live train status
+ Flight search
+ Flight status
+ Check-in link
+ Boarding pass
+ Gate number
+ Baggage belt
+ Lounge access
+ Upgrade options
+ Seat map
+ Fare alerts
+ Hotel search
+ Hotel booking
+ Booking details
+ Booking cancel
+ Late checkout
+ Early check-in
+ Car rental
+ Ride estimate
+ Book cab
+ Cab status
+ Driver contact
+ Split fare
+ Fuel log
+ Toll cost
+ Trip summary
+ Travel checklist
+ Currency tips
+ Safety tips
+ Local holidays
+ Local laws
+ Embassy info
+ Visa info
+ Weather destination
+ Pack suggestions
+ Translate signs
+ Offline maps
+ Save itinerary
+ Share itinerary
+ Music play
+ Music pause
+ Music resume
+ Next track
+ Previous track
+ Shuffle on
+ Shuffle off
+ Repeat one
+ Repeat all
+ Set volume
+ Like song
+ Dislike song
+ Add to playlist
+ Remove from playlist
+ Playlist create
+ Playlist delete
+ Queue song
+ Now playing
+ Identify song
+ Show lyrics
+ Radio play
+ Podcast play
+ Podcast subscribe
+ Podcast skip
+ Audiobook play
+ Sleep timer
+ TV guide
+ Movie showtimes
+ Movie ratings
+ Streaming search
+ Cast to TV
+ Pause on TV
+ Resume on TV
+ Smart TV input
+ Smart TV volume
+ Game scores
+ Game schedule
+ Esports live
+ Twitch stream
+ YouTube play
+ YouTube pause
+ Channel subscribe
+ Watch later
+ Smart home status
+ Lights on
+ Lights off
+ Dim lights
+ Brighten lights
+ Set color
+ Scene movie
+ Scene reading
+ Scene party
+ Thermostat set
+ Thermostat mode
+ AC on
+ AC off
+ Fan speed
+ Air purifier on
+ Air purifier off
+ Humidifier on
+ Humidifier off
+ Dehumidifier on
+ Dehumidifier off
+ Curtains open
+ Curtains close
+ Blinds up
+ Blinds down
+ Door lock
+ Door unlock
+ Garage open
+ Garage close
+ Camera live
+ Camera snapshot
+ Doorbell chime
+ Motion alert
+ Leak alert
+ Smoke alarm
+ Energy usage
+ Solar output
+ EV charging start
+ EV charging stop
+ Sprinklers on
+ Sprinklers off
+ Robot vacuum start
+ Robot vacuum dock
+ Smart plug on
+ Smart plug off
+ Routine run
+ Routine edit
+ Routine delete
+ Morning routine
+ Night routine
+ Away routine
+ Geofence arrive
+ Geofence leave
+ If-This-Then-That
+ Email compose
+ Email send
+ Email draft
+ Email search
+ Email unread
+ Email archive
+ Email delete
+ Email label
+ Email mark read
+ Email mark unread
+ Email star
+ Email unstar
+ Email snooze
+ Calendar invite
+ RSVP status
+ Message compose
+ Message send
+ Message read
+ Message search
+ Message delete
+ Message pin
+ Message unpin
+ Broadcast message
+ Create group
+ Add member
+ Remove member
+ Group mute
+ Group unmute
+ Call contact
+ Call recent
+ Call back
+ Redial last
+ Voicemail play
+ Voicemail delete
+ Block number
+ Unblock number
+ Share contact
+ New contact
+ Edit contact
+ Delete contact
+ Favorite contact
+ Unfavorite contact
+ Social post
+ Post schedule
+ Post delete
+ DM send
+ DM read
+ Follow account
+ Unfollow account
+ Like post
+ Unlike post
+ Save post
+ Share post
+ Trending hashtags
+ Profile view
+ Privacy settings
+ Two-factor on
+ Two-factor off
+ Password check
+ Breach alert
+ App permissions
+ Location access
+ Camera access
+ Microphone access
+ Clipboard clear
+ VPN connect
+ VPN disconnect
+ Network speed
+ Ping test
+ Data usage
+ Roaming status
+ Carrier info
+ Plan details
+ Bill amount
+ Bill due date
+ Pay bill
+ Recharge mobile
+ Data top-up
+ OTT subscription
+ Subscription renew
+ Subscription cancel
+ Subscription pause
+ Gift card balance
+ Coupon find
+ Coupon apply
+ Loyalty points
+ Cashback status
+ Expense add
+ Expense list
+ Budget status
+ Budget alert
+ Savings goal
+ Goal progress
+ EMI calculator
+ Mortgage calc
+ SIP calculator
+ Tax calculator
+ GST lookup
+ IFSC lookup
+ Bank branch hours
+ Cheque status
+ UPI collect
+ UPI send
+ UPI pending
+ Payment request
+ Payment approve
+ Payment decline
+ Split expense
+ Trip expense
+ Invoice create
+ Invoice send
+ Invoice pay
+ Invoice status
+ Receipt save
+ Receipt share
+ PDF scan
+ PDF merge
+ PDF split
+ File search
+ File share
+ File delete
+ Cloud upload
+ Cloud download
+ Cloud sync
+ Recent files
+ Favorite files
+ Folder create
+ Folder rename
+ Folder share
+ Note new
+ Note edit
+ Note delete
+ Note pin
+ Note unpin
+ Checklist new
+ Checklist toggle
+ Checklist clear
+ Voice memo start
+ Voice memo stop
+ Voice memo list
+ Voice memo delete
+ Dictation note
+ Summarize text
+ Rewrite text
+ Expand text
+ Shorten text
+ Fix grammar
+ Change tone
+ Bullet points
+ Action items
+ Meeting notes
+ Transcript start
+ Transcript stop
+ Transcript summary
+ Translate transcript
+ Slides create
+ Slide add
+ Slide export
+ Document create
+ Document format
+ Document export
+ Sheet create
+ Sheet formula
+ Chart create
+ Chart export
+ Code snippet
+ Code explain
+ Code fix
+ Regex build
+ API request
+ JSON format
+ YAML format
+ CSV to table
+ Table sort
+ Table filter
+ Table export
+ Image search
+ Image resize
+ Image crop
+ Image rotate
+ Image convert
+ Background remove
+ Icon search
+ Emoji search
+ Wallpaper set
+ Theme light
+ Theme dark
+ Theme auto
+ Font size up
+ Font size down
+ Reader mode
+ Ad blocker toggle
+ Cookie consent
+ Clear history
+ Clear cookies
+ Clear downloads
+ Open tab
+ Close tab
+ Switch tab
+ Save bookmark
+ Open bookmark
+ Reading list add
+ Reading list open
+ Map open
+ Satellite view
+ Terrain view
+ Street view
+ Measure distance
+ Measure area
+ Share map
+ Geo coordinate
+ Reverse geocode
+ Plus code
+ Nearby fuel
+ Nearby ATM
+ Nearby bank
+ Nearby cafe
+ Nearby gym
+ Nearby park
+ Nearby hospital
+ Nearby school
+ Nearby hotel
+ Nearby mall
+ Nearby cinema
+ Weather at location
+ Traffic to work
+ Commute summary
+ Leave by time
+ Arrive by time
+ Share ETA
+ Car mode on
+ Car mode off
+ Bike mode
+ Walk mode
+ Transit mode
+ Tolls estimate
+ Ferry schedule
+ Airport info
+ Airline contact
+ Lost baggage
+ Visa checklist
+ Currency limits
+ Duty-free allowance
+ Travel insurance
+ Local SIM info
+ Roaming packs
+ City guide
+ Must-see list
+ Restaurant guide
+ Tipping guide
+ Emergency phrases
+ Offline phrasebook
+ Kids story
+ Kids joke
+ Kids riddle
+ Kids quiz
+ Spelling test
+ Math practice
+ Times tables
+ Flashcards start
+ Flashcards flip
+ Flashcards score
+ Language lesson
+ Pronunciation drill
+ Reading timer
+ Screen time today
+ App limits set
+ App limits edit
+ Downtime schedule
+ Parental controls
+ Content filter
+ Safe search on
+ Safe search off
+ School calendar
+ Holiday list
+ Exam timetable
+ Result date
+ Scholarship info
+ College finder
+ Course finder
+ Internship finder
+ Job alerts
+ Resume tips
+ Cover letter tips
+ Interview tips
+ Salary range
+ Offer compare
+ Notice period calc
+ PF balance
+ Tax slab
+ PAN status
+ Aadhaar status
+ Passport status
+ Driving license status
+ RTO fine check
+ Traffic challan
+ Fastag balance
+ Voter info
+ Polling booth
+ Income tax e-file
+ GST return
+ Electricity bill
+ Water bill
+ Gas bill
+ Property tax
+ Sewerage bill
+ Metro card balance
+ Metro recharge
+ Bus pass renew
+ Train pass renew
+ Election results
+ Civic helpline
+ Garbage pickup
+ Power outage
+ Water outage
+ Weather outage map
+ City announcements
+ Community events
+ Library hours
+ Library renew
+ Book search
+ ISBN lookup
+ Audiobook borrow
+ Museum hours
+ Park alerts
+ Trail status
+ Tide times
+ Fishing times
+ Surf report
+ Ski report
+ Avalanche risk
+ Hiking weather
+ Camping checklist
+ Stargazing forecast
+ ISS flyover
+ Meteor shower
+ Eclipse timer
+ Moonrise time
+ Moonset time
+ Planet visibility
+ Constellation info
+ Space news
+ Science quiz
+ Daily trivia
+ Brain teaser
+ Riddle of day
+ Quote of day
+ Motivation card
+ Affirmation card
+ Gratitude log
+ Journal prompt
+ Mood tracker
+ Habit start
+ Habit streak
+ Habit reset
+ Water intake
+ Meal log
+ Fasting timer
+ Calorie goal
+ Macro split
+ Allergy alert
+ Food substitute
+ Diet plan
+ Keto tips
+ Vegan tips
+ Vegetarian tips
+ Gluten-free tips
+ Lactose-free tips
+ Low-FODMAP tips
+ Sleep sounds
+ White noise
+ Rain sounds
+ Ocean sounds
+ Forest sounds
+ Focus timer
+ Background sounds
+ Mindfulness quote
+ Breathing box
+ breathing
+ Body scan
+ Stress relief
+ Anxiety tips
+ Mood boost
+ Daily reflection
+ Meeting prep
+ Meeting agenda
+ Decision matrix
+ Pros and cons
+ SWOT outline
+ Standup summary
+ Sprint burndown
+ Velocity chart
+ Issue tracker
+ Bug report
+ PR review list
+ CI status
+ Build status
+ Release notes
+ Changelog entry
+ Feature flags
+ Roadmap view
+ OKR progress
+ KPI dashboard
+ Sales pipeline
+ Lead score
+ Deal forecast
+ Ticket status
+ SLA timer
+ NPS survey
+ CSAT survey
+ Feedback log
+ Call summary
+ Email summary
+ Meeting summary
+ Action summary
+ Follow-up list
+ Thank-you note
+ Apology note
+ Congratulation note
+ Invitation note
+ Reminder note
+ RSVP reminder
+ Birthday reminder
+ Anniversary reminder
+ Holiday greeting
+ Festival greeting
+ Prayer times
+ Qibla direction
+ Aarti time
+ Temple hours
+ Church hours
+ Mosque hours
+ Synagogue hours
+ Scripture verse
+ Hymn lyrics
+ Chant timer
+ Charity info
+ Donation link
+ Volunteer signup
+ Blood donation camp
+ Pet adoption
+ Pet clinic
+ Vet hours
+ Pet vaccination
+ Pet food tips
+ Plant care tips
+ Water plants
+ Fertilizer schedule
+ Pest control tips
+ Compost guide
+ Recycling guide
+ Trash schedule
+ Air purifier filter
+ RO filter change
+ Geyser timer
+ Inverter status
+ Generator fuel
+ Weatherproof tips
+ Home inventory
+ Warranty tracker
+ Appliance manual
+ Appliance service
+ AMC renewal
+ Insurance policy
+ Claim status
+ Premium due
+ ID renewal
+ PAN update
+ Aadhaar update
+ Address proof
+ Rent receipt
+ Lease reminder
+ EMI due
+ Credit score
+ KYC status
+ e-Mandate status
+ Bank holidays
+ Market holidays
+ School holidays
+ Office holidays
+ OOO schedule
+ OOO reply
+ Work shift
+ Punch in
+ Punch out
+ Timesheet add
+ Timesheet submit
+ Leave balance
+ Leave apply
+ Leave approve
+ Leave cancel
+ Travel request
+ Expense claim
+ Expense approve
+ Asset request
+ Asset return
+ Helpdesk ticket
+ Ticket escalate
+ Ticket close
+ IT outage
+ Security alert
+ VPN policy
+ On-call roster
+ Pager alert
+ Incident start
+ Incident update
+ Incident resolve
+ RCA draft
+ SLA breach
+ Backup status
+ Restore point
+ Server uptime
+ Server reboot
+ Disk usage
+ CPU usage
+ Memory usage
+ Pod status
+ Deploy status
+ Rollback deploy
+ Feature toggle on
+ Feature toggle off
+ Log search
+ Error rate
+ Apdex score
+ Synthetics check
+ Certificate expiry
+ Domain expiry
+ DNS lookup
+ WHOIS lookup
+ IP blacklist check
+ Firewall status
+ Port scan
+ SSH key add
+ SSH key revoke
+ Secrets rotate
+ API key create
+ API key revoke
+ Rate limit status
+ Quota usage
+ Billing usage
+ Cost explorer
+ Budget alert
+ Savings plan
+ Spot price
+ Instance list
+ Instance stop
+ Instance start
+ Instance reboot
+ Snapshot create
+ Snapshot delete
+ Volume attach
+ Volume detach
+ Bucket list
+ Bucket policy
+ CDN purge
+ CDN status
+ Cache warm
+ Feature request
+ Bug triage
+ Idea backlog
+ Roadmap vote
+ Sprint goal
+ Retro notes
+ Action owners
+ SLA matrix
+ Runbook open
+ Playbook run
+ Contact HR
+ HR policy
+ Payslip download
+ Tax proof upload
+ Reimbursement status
+ Referral bonus
+ HR ticket
+ LMS course
+ LMS progress
+ LMS certificate
+ Company holiday
+ Townhall date
+ Cafeteria menu
+ Shuttle timing
+ Parking slot
+ ID card status
+ Access request
+ Access revoke
+ Badge lost
+ Visitor pass
+ Meeting room free
+ Meeting room book
+ Meeting room release
+ Pantry request
+ Cleaning request
+ Maintenance request
+ Fire drill info
+ Safety manual
+ Policy change
+ Compliance task
+ Audit calendar
+ Audit findings
+ Risk register
+ Risk heatmap
+ Control status
+ Vendor list
+ Vendor contact
+ PO status
+ Invoice approve
+ Payment run
+ GRN status
+ Asset inventory
+ License usage
+ License renew
+ Procurement request
+ Courier pickup
+ Mailroom status
+ Desk booking
+ Seat map
+ Hot desk extend
+ Remote day plan
+ Commute subsidy
+ Wellness program
+ Fitness classes
+ Doctor on call
+ Mental health help
+ EAP contact
+ CSR activity
+ Hackathon date
+ Tech talk schedule
+ Brown bag signup
+ Mentorship match
+ Buddy program
+ Birthday list
+ Work anniversary
+ Kudos send
+ Kudos wall
+ Poll create
+ Poll vote
+ Survey start
+ Survey results
+ AMA schedule
+ AMA questions
+ Townhall Q\&A
+ Org chart
+ Team directory
+ Skill matrix
+ Learning path
+ Badge earned
+ Badge leaderboard
+ Internal jobs
+ Referral jobs
+ Interview slots
+ Candidate status
+ Offer status
+ Onboarding steps
+ Asset handover
+ Probation review
+ Goal setting
+ Mid-year review
+ Annual review
+ Pay revision
+ Bonus payout
+ ESOP vesting
+ Travel policy
+ Reim policy
+ Leave policy
+ Hybrid policy
+ Security policy
+ Social policy
+ Open enrollment
+ Insurance claim
+ Network hospital
+ Wellness claim
+ Dental coverage
+ Vision coverage
+ Maternity policy
+ Paternity policy
+ Bereavement leave
+ Sabbatical policy
+ Attendance report
+ Late mark
+ Early leave
+ Overtime hours
+ Shift swap
+ Shift roster
+ Geo attendance
+ Geo fence alert
+ Biometrics status
+ Cafeteria wallet
+ Wallet top-up
+ Wallet balance
+ Meal coupon
+ Meal order
+ Meal cancel
+ Feedback submit
+ Feedback resolve
+ Suggestion box
+ Complaint ticket
+ Hotline number
+ Policy FAQ
+ IT FAQ
+ HR FAQ
+ Travel FAQ
+ Finance FAQ
+ Benefits FAQ
+ Security FAQ
+ Compliance FAQ
+ Legal FAQ
+ Admin FAQ
+ General FAQ
+ Crypto wallet
+ Wallet address
+ Gas fee estimate
+ NFT floor price
+ NFT watchlist
+ Token swap
+ Token bridge
+ On-chain tx status
+ Block height
+ Gas tracker
+ DeFi APR
+ Staking rewards
+ Airdrop check
+ Governance vote
+ DAO snapshot
+ Wallet backup
+ Seed phrase tips
+ Price alert
+ Rugpull alert
+ Scam warning
+ Weather widget add
+ Stocks widget add
+ Calendar widget add
+ Notes widget add
+ Battery widget add
+ Music widget add
+ Remove widget
+ Move widget
+ Resize widget
+ Lock screen widget
+ Custom shortcut
+ Back tap action
+ Double tap action
+ Triple tap action
+ Edge gesture on
+ Edge gesture off
+ Gesture tips
+ Keyboard switch
+ Keyboard language
+ Clipboard history
+ Text expansion
+ Auto-reply set
+ Auto-reply off
+ Quick phrases
+ Smart reply
+ Summarize email
+ Summarize chat
+ Summarize doc
+ Summarize page
+ TL;DR mode
+ Paraphrase text
+ Translate page
+ Explain concept
+ Compare options
+ Decision helper
+ Pros list
+ Cons list
+ Risk list
+ Action plan
+ Timeline plan
+ Milestone list
+ Reminder cadence
+ Follow-up nudge
+ Coaching tip
+ Etiquette tip
+ Travel hack
+ Money hack
+ Fitness hack
+ Study hack
+ Productivity hack
+ Parenting tip
+ Relationship tip
+ Career tip
+ Coding tip
+ Design tip
+ Writing tip
+ Speaking tip
+ Interview prep
+ Meeting etiquette
+ Email etiquette
+ Code style guide
+ Git commit guide
+ PR template
+ Jira template
+ Doc template
+ Resume template
+ Cover letter template
+ Slide template
+ Budget template
+ Report template
+ Contract template
+ NDA template
+ Invoice template
+ Quotation template
+ SOP template
+ Checklist template
+ Risk template
+ RCA template
+ OKR template
+ KPI template
+ Habit ideas
+ Morning ideas
+ Evening ideas
+ Weekend ideas
+ Date ideas
+ Family ideas
+ Party ideas
+ Gift ideas
+ Craft ideas
+ DIY fix
+ Home hack
+ Car hack
+ Garden hack
+ Kitchen hack
+ Laundry hack
+ Cleaning hack
+ Organizing hack
+ Packing hack
+ Moving checklist
+ Repair checklist
+ Travel checklist
+ Camping checklist
+ Hiking checklist
+ Beach checklist
+ Festival checklist
+ Wedding checklist
+ Baby checklist
+ Pet checklist
+ First aid checklist
+ Emergency kit list
+ Fire safety plan
+ Evacuation route
+ Contact tree
+ Family locator
+ Insurance folder
+ Document vault
+ Password vault
+ Secret note
+ Secure share
+ Secure shred
+ App lock on
+ App lock off
+ Hidden album
+ Hide photos
+ Unhide photos
+ Blur photos
+ Redact info
+ Face blur
+ Plate blur
+ PDF redact
+ OCR text
+ Translate OCR
+ Math OCR
+ Table OCR
+ Handwriting OCR
+ Signature capture
+ Sign document
+ Fill form
+ Form export
+ KYC selfie
+ Liveness check
+ Face match
+ ID scan
+ Address scan
+ Utility bill scan
+ e-Sign request
+ e-Sign status
+ Consent log
+ Consent revoke
+ Privacy export
+ Privacy delete
+ Ad settings
+ Interest settings
+ Data download
+ Data deletion
+ Location history
+ Activity history
+ Search history
+ Watch history
+ Purchase history
+ Ride history
+ Trip history
+ Call history
+ SMS history
+ Email history
+ Health history
+ Sleep history
+ Steps history
+ Weight history
+ BP history
+ HR history
+ SpOhistory
+ Glucose log
+ Temperature log
+ Pain log
+ Symptom checker
+ Nearby clinic
+ Doctor booking
+ Lab test booking
+ Test results
+ Prescription list
+ Refill reminder
+ Drug interaction
+ Side effects
+ Dosage guide
+ Food interactions
+ Allergy list
+ Vitals alert
+ SOS contact
+ ICE card
+ Travel vaccine
+ Yellow fever center
+ Malaria risk
+ Zika advisory
+ Flu shot
+ Tetanus booster
+ COVID booster
+ Dengue alert
+ Pollution mask
+ Heatstroke tips
+ Hypothermia tips
+ Dehydration tips
+ Food poisoning tips
+ Burn first aid
+ Snakebite first aid
+ CPR steps
+ Choking steps
+ Poison control
+ Emergency numbers
+ Local helplines
+ Women helpline
+ Child helpline
+ Senior helpline
+ Cybercrime report
+ Lost phone find
+ Lock device
+ Erase device
+ Ring device
+ Device location
+ Device battery
+ Device storage
+ Device model
+ OS version
+ Update available
+ Update now
+ Restart device
+ Power off
+ Safe mode
+ Recovery mode
+ Backup now
+ Restore backup
+ Migrate data
+ Transfer phone
+ Pair device
+ Unpair device
+ Find accessories
+ AirTag location
+ Tile location
+ Smart tag ring
+ Lost mode on
+ Lost mode off
+ Warranty check
+ Repair status
+ Service center
+ Pickup request
+ Delivery window
+ Delivery reschedule
+ Delivery feedback
+ Courier contact
+ Package photo
+ Doorstep note
+ Safe place note
+ Return label
+ Drop-off point
+ Pickup slot
+ Locker code
+ Export contacts
+ Import contacts
+ Merge duplicates
+ Clean contacts
+ Ringtone set
+ Wallpaper change
+ Icon pack apply
+ Launcher change
+ Widget stack
+ Gesture map
+ Edge panel
+ Quick tile add
+ Quick tile remove
+ Quick tile reorder
+ Status bar icons
+ Notch settings
+ Always-on display
+ Raise to wake
+ Tap to wake
+ Lift to silence
+ Flip to mute
+ Pocket mode
+ Glove mode
+ One-handed mode
+ Reachability mode
+ Split screen
+ PiP window
+ App pair launch
+ Clipboard pin
+ Auto rotate on
+ Auto rotate off
+ Rotation lock
+ Orientation set
+ Haptic strength
+ Notification sound
+ Ringtone volume
+ Alarm volume
+ Media volume
+ Key click sound
+ Screenshot sound
+ Charging sound
+ Keyboard vibration
+ Silent keyboard
+ Dictation language
+ TTS speed
+ TTS pitch
+ Voice selection
+ Voice download
+ Voice delete
+ Offline voice on
+ Offline voice off
+ Offline maps on
+ Offline maps off
+ Download region
+ Delete region
+ Storage cleanup
+ Duplicate photos
+ Similar photos
+ Blurry photos
+ Large videos
+ Screen recordings
+ Old screenshots
+ Burst photos
+ Hidden files
+ Secure folder
+ Private mode
+ Kids mode
+ Guest mode
+ Work profile
+ Personal profile
+ Profile switch
+ App clone
+ Dual apps
+ Second space
+ Lite mode
+ High contrast mode
+ Color correction
+ Color inversion
+ Reduce motion
+ Transparency reduce
+ Bold text
+ Larger text
+ Reader spacing
+ Reader theme
+ Focus filter
+ App filter
+ Contact filter
+ Mail filter
+ Chat filter
+ Photo filter
+ Video filter
+ Audio filter
+ File filter
+ Task filter
+ Calendar filter
+ Search filter
+ Safe filter
+ Parental filter
+ Profile status
+ Outing plan
+ Weekend plan
+ Budget plan
+ Study plan
+ Workout plan
+ Diet plan
+ Sleep plan
+ Travel plan
+ Move plan
+ Savings plan
+ Debt payoff plan
+ Learning plan
+ Career plan
+ Project plan
+ Event plan
+ Party plan
+ Wedding plan
+ Birthday plan
+ Anniversary plan
+ Festival plan
+ Holiday plan
+ Road trip plan
+ Hiking plan
+ Camping plan
+ Beach day plan
+ Museum day plan
+ Movie night plan
+ Game night plan
+ Date night plan
+ Family day plan
+ Meal prep plan
+ Grocery plan
+ Cleaning plan
+ Declutter plan
+ Garden plan
+ Renovation plan
+ Painting plan
+ Repair plan
+ Upgrade plan
+ Donation plan
+ Sell items plan
+ Yard sale plan
+ Budget review
+ Subscription review
+ Privacy review
+ Security review
+ Health review
+ Fitness review
+ Sleep review
+ Study review
+ Work review
+ Project review
+ Week review
+ Month review
+ Year review
+ Goals review
+ Habits review
+ Tasks review
+ Notes review
+ Photos review
+ Files review
+ Contacts review
+ Apps review
+ Storage review
+ Battery review
+ Network review
+ System review
+ Travel review
+ Finance review
+ Safety review
+ Home review
+ Car review
+ Garden review
+ Kids review
+ Pets review
+ Movies to watch
+ Books to read
+ Podcasts to hear
+ Courses to take
+ Skills to learn
+ Places to visit
+ Foods to try
+ Recipes to cook
+ Gifts to buy
+ People to call
+ Emails to send
+ Messages to reply
+ Chores to do
+ Errands to run
+ Repairs to book
+ Returns to make
+ Bills to pay
+ Subscriptions to cancel
+ Renewals to handle
+ Goals to set
+ Goals to track
+ Habits to start
+ Habits to stop
+ Habits to track
+ Tasks for today
+ Tasks for week
+ Tasks overdue
+ Tasks upcoming
+ Priority tasks
+ Flagged tasks
+ Archived tasks
+ Completed tasks
+ Delegated tasks
+ Repeating tasks
+ Meeting tasks
+ Personal tasks
+ Work tasks
+ Study tasks
+ Health tasks
+ Travel tasks
+ Finance tasks
+ Home tasks
+ Car tasks
+ Garden tasks
+ Pet tasks
+ Kids tasks
+ Shopping tasks
+ Chores tasks
+ Cleaning tasks
+ Laundry tasks
+ Trash tasks
+ Recycling tasks
+ Cooking tasks
+ Maintenance tasks
+ Upgrade tasks
+ Declutter tasks
+ Organizing tasks
+ Packing tasks
+ Moving tasks
+ Unpacking tasks
+ Setup tasks
+ Backup tasks
+ Security tasks
+ Privacy tasks
+ Update tasks
+ Review tasks
+ Plan tasks
+ Schedule tasks
+ Track tasks
+ Share tasks
+ Assign tasks
+ Nudge tasks
+ Log tasks
+ Summarize tasks
+ Export tasks
+ Import tasks
+ Sync tasks
+ Restore tasks
+ Merge tasks
+ Clean tasks
+ Label tasks
+ Tag tasks
+ Filter tasks
+ Sort tasks
+ Group tasks
+ Board view
+ List view
+ Calendar view
+ Timeline view
+ Kanban view
+ Gantt view
+ Map view
+ Table view
+ Gallery view
+ Compact view
+ Focus view
+ Minimal view
+ Print view
+ Share link
+ Public link
+ Private link
+ Access link
+ Revoke link
+ QR code
+ Short link
+ Deep link
+ App link
+ Intent link
+ Callback link
+ Webhook send
+ Webhook test
+ Webhook logs
+ Bot command
+ Bot menu
+ Bot status
+ Bot restart
+ Bot config
+ Bot auth
+ Bot scopes
+ Bot tokens
+ Bot events
+ Bot intents
+ Channel post
+ Channel pin
+ Channel unpin
+ Channel mute
+ Channel unmute
+ Channel invite
+ Channel leave
+ Group create
+ Group invite
+ Group leave
+ Space create
+ Space join
+ Space leave
+ Forum create
+ Forum reply
+ Forum close
+ Comment add
+ Comment edit
+ Comment delete
+ Like comment
+ Report comment
+ Block user
+ Unblock user
+ Mute user
+ Unmute user
+ Profile edit
+ Profile photo
+ Status update
+ Story post
+ Story save
+ Story delete
+ Reel post
+ Reel save
+ Reel delete
+ Live stream start
+ Live stream end
+ Live chat on
+ Live chat off
+ Tip creator
+ Subscribe creator
+ Unsubscribe creator
+ Membership perks
+ Badge grant
+ Badge revoke
+ Poll share
+ Poll results
+ Quiz start
+ Quiz results
+ Challenge start
+ Challenge rank
+ Leaderboard view
+ Badge progress
+ Streak today
+ Streak freeze
+ Streak lost
+ Streak restore
+ Goal celebrate
+ Goal roll over
+ Habit skip
+ Habit snooze
+ Habit note
+ Habit share
+ Habit export
+ Habit import
+ Journal new
+ Journal edit
+ Journal tag
+ Journal export
+ Memory add
+ Memory view
+ Memory share
+ Timeline create
+ Timeline edit
+ Timeline share
+ Collage create
+ Collage export
+ Story template
+ Reel template
+ Meme template
+ Caption helper
+ Hashtag helper
+ Alt text helper
+ Thumbnail pick
+ Thumbnail export
+ Color palette
+ Font pairing
+ Layout ideas
+ Grid overlay
+ Rule of thirds
+ Golden ratio
+ Crop suggestion
+ Exposure tips
+ White balance
+ HDR toggle
+ Night mode
+ Portrait tips
+ Macro tips
+ Slow-mo tips
+ Timelapse tips
+ Hyperlapse tips
+ Panorama tips
+ Long exposure
+ Light trail
+ Star trail
+ Macro focus
+ Focus peaking
+ Manual controls
+ RAW capture
+ Lens info
+ Sensor info
+ Shutter count
+ Photo histogram
+ Video bitrate
+ Audio levels
+ Wind filter
+ Noise reduction
+ Spatial audio
+ Dolby on
+ Dolby off
+ HDR+ on
+ HDR+ off
+ HFR on
+ HFR off
+  toggle
+  toggle
+ Codec switch
+ Stabilization on
+ Stabilization off
+ Printer status
+ Printer ink
+ Print queue
+ Print photo
+ Print document
+ Scan to email
+ Scan to drive
+ Fax send
+ Fax status
+ Smart tag add
+ Smart tag find
+ Smart tag battery
+ Wearable battery
+ Wearable sync
+ Wearable update
+ Watch face set
+ Complication set
+ Tile add
+ Tile remove
+ Tile reorder
+ Car key status
+ Car lock
+ Car unlock
+ Car start
+ Car climate
+ Car horn
+ Car lights
+ Car location
+ Car valet mode
+ Car service due
+ Tyre pressure
+ Fuel level
+ Oil life
+ Washer fluid
+ Brake pads
+ Wiper status
+ Insurance due
+ PUC due
+ RC status
+ Challan status
+ Road tax
+ Toll wallet
+ Fastag recharge
+ Speed alerts
+ Geo-fence car
+ Trip log
+ Driving score
+ Eco score
+ Hard brake count
+ Hard accel count
+ Cornering score
+ Idling time
+ Cruise time
+ Night drive time
+ Day drive time
+ Voice profile
+ Wake word set
+ Wake word off
+ Sensitivity high
+ Sensitivity low
+ Language set
+ Voice training
+ Voice feedback on
+ Voice feedback off
+ Sound feedback on
+ Sound feedback off
+ Visual feedback on
+ Visual feedback off
+ Handoff to phone
+ Handoff to watch
+ Handoff to car
+ Handoff to TV
+ Cross-device copy
+ Cross-device paste
+ Nearby share
+ Quick share
+ AirDrop send
+ AirDrop receive
+ Cast screen
+ Stop casting
+ Miracast connect
+ Miracast disconnect
+ Bluetooth pair
+ Bluetooth unpair
+ Audio device switch
+ Output device list
+ Input device list
+ Mic mute
+ Mic unmute
+ Camera mute
+ Camera unmute
+ Speaker test
+ Mic test
+ Camera test
+ Network test
+ Storage test
+ Battery test
+ Sensor test
+ Pixel test
+ Dead pixel map
+ Color test
+ Touch test
+ Vibration test
+ GPS test
+ Compass calibrate
+ Gyro calibrate
+ Proximity test
+ Ambient light test
+ Barometer test
+ Thermometer test
+ Hall sensor test
+ UWB test
+ IR blaster test
+ FM radio test
+ NFC test
+ USB test
+ OTG status
+ SD card status
+ SIM status
+ eSIM status
+ IMEI show
+ Serial show
+ Model show
+ Build number
+ Developer mode on
+ Developer mode off
+ Bug report send
+ Feedback send
+ Rate app
+ Share app
+ App version
+ Changelog show
+ License show
+ Credits show
+ Terms open
+ Privacy open
+ Help center
+ Community forum
+ Contact support
+ Ticket submit
+ Ticket status
+ Ticket close
+ Escalate ticket
+ Callback request
+ Callback time
+ Chat support start
+ Chat support end
+ Email support
+ Phone support
+ Social support
+ IVA handoff
+ Live agent queue
+ Queue time
+ SLA target
+ Satisfaction poll
+ Thanks message
+ Goodbye message
+ Welcome message
+ Onboarding steps
+ Tutorial start
+ Tutorial next
+ Tutorial skip
+ Tips and tricks
+ Release highlights
+ What’s new
+ Known issues
+ Workarounds
+ Feature tour
+ Deep dive
+ Sample command
+ Command list
+ Category list
+ Capability list
+ Limitation list
+ Privacy notice
+ Data policy
+ Consent prompt
+ Consent revoke
+ Reset assistant
+ Export settings
+ Import settings
+ Backup settings
+ Restore settings
+ Reset settings
+ Profile backup
+ Profile restore
+ Logout now
+ Login help
+ Switch account
+ Link account
+ Unlink account
+ Verify email
+ Verify phone
+ OTP resend
+ OTP verify
+ Password reset
+ Passkey setup
+ Passkey login
+ Passkey revoke
+ A codes
