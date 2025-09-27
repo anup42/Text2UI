@@ -2,7 +2,7 @@
 """Generate assistant to HTML training samples with Gemini Pro or ChatGPT.
 
 This script batches scenario prompts, asks either Gemini or ChatGPT for HTML UIs that
-leverage `agent.css`, and writes the aggregated dataset to JSON.
+leverage `agent2.css` (backward compatible with agent.css), and writes the aggregated dataset to JSON.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ except ImportError:  # pragma: no cover - optional dependency
 DEFAULT_GEMINI_MODEL = "gemini-2.5-pro"
 DEFAULT_OPENAI_MODEL = "gpt-4.1"
 DEFAULT_CACHE_SUFFIX = ".cache.jsonl"
-DEFAULT_SECRETS_FILE = Path("configs/api_keys.json")
+DEFAULT_SECRETS_FILE = Path("configs/api_keys2.json")
 
 
 def load_secrets_dict(path: Path) -> Dict[str, object]:
@@ -52,41 +52,91 @@ def load_secrets_dict(path: Path) -> Dict[str, object]:
         return data
     logging.warning("Secrets file %s must contain a JSON object.", path)
     return {}
+
 CSS_CLASSES = [
     "agent-screen",
     "agent-header",
     "agent-eyebrow",
     "agent-summary",
+    "agent-subtext",
     "agent-section",
     "agent-section-header",
     "agent-section-title",
     "agent-list",
+    "agent-list-spaced",
+    "agent-inline",
+    "agent-inline-scroll",
+    "agent-actions",
+    "agent-toolbar",
+    "agent-toolbar-title",
+    "agent-app-bar",
     "agent-card",
+    "agent-floating-card",
     "agent-card-title",
     "agent-card-body",
-    "agent-inline",
-    "agent-actions",
+    "agent-callout",
+    "agent-callout-title",
+    "agent-callout-body",
+    "agent-tag",
+    "agent-badge",
+    "agent-pill-badge",
     "agent-button",
     "agent-footer",
     "agent-note",
+    "agent-breadcrumbs",
+    "agent-breadcrumb",
+    "agent-divider",
     "agent-kpis",
     "agent-kpi",
     "agent-kpi-label",
     "agent-kpi-value",
-    "agent-tag",
-    "agent-status",
+    "agent-stat-grid",
+    "agent-stat",
+    "agent-stat-label",
+    "agent-stat-value",
     "agent-meta",
     "agent-metadata",
     "agent-metadata-row",
     "agent-progress",
+    "agent-progress-label",
     "agent-progress-fill",
-    "agent-pill-group",
-    "agent-pill",
     "agent-progress-circle",
     "agent-progress-track",
     "agent-progress-indicator",
     "agent-progress-value",
+    "agent-pill-group",
+    "agent-pill",
+    "agent-status",
     "agent-timer",
+    "agent-avatar",
+    "agent-avatar-stack",
+    "agent-grid",
+    "agent-grid-two",
+    "agent-grid-three",
+    "agent-grid-responsive",
+    "agent-tab-bar",
+    "agent-tab",
+    "agent-bottom-nav",
+    "agent-bottom-nav-item",
+    "agent-bottom-sheet",
+    "agent-toast",
+    "agent-toast-info",
+    "agent-toast-warning",
+    "agent-toast-danger",
+    "agent-empty-state",
+    "agent-empty-title",
+    "agent-empty-action",
+    "agent-chart",
+    "agent-chart-bar",
+    "agent-chart-line",
+    "agent-timeline",
+    "agent-timeline-item",
+    "agent-timeline-dot",
+    "agent-form",
+    "agent-field",
+    "agent-field-label",
+    "agent-field-control",
+    "agent-toggle",
 ]
 
 RATE_LIMIT_ERRORS: Tuple[type[BaseException], ...] = tuple()
@@ -135,7 +185,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--scenario-file",
         type=Path,
-        default=Path("data/samples/scenario.txt"),
+        default=Path("data/samples/scenario2.txt"),
         help="Path to the scenario list (one name per line).",
     )
     parser.add_argument(
@@ -375,14 +425,15 @@ PROMPT_TEMPLATE = """You craft UI training data for an assistant that renders re
 Return JSON array with exactly {count} objects ({count} JSON objects per request). No commentary, no markdown fences.
 Each object must contain:
   "input": Natural language assistant response (single paragraph, scenario-aligned, <= 5 sentences, ASCII only).
-  "output": Complete HTML5 document that uses <link rel=\"stylesheet\" href=\"agent.css\" /> and the provided CSS class set.
+  "output": Complete HTML5 document that uses <link rel=\"stylesheet\" href=\"agent2.css\" /> and the provided CSS class set.
 Guidelines:
 - Wrap content in <main class=\"agent-screen\" data-scenario=\"SCENARIO\"> where data-scenario matches the scenario string exactly.
 - Use only these CSS utility classes (append modifiers like secondary/subtle after agent-button when needed): {classes}.
 - Include 2-4 sections with headers, summaries, and context-rich data tied to the scenario.
 - Provide actionable controls using <button type=\"button\" class=\"agent-button ...\" data-action=\"...\">.
-- Keep markup accessible (use headings, lists, aria labels where useful) and ASCII characters only.
-- Do not embed custom CSS or scripts; rely on agent.css utility classes.
+- Keep markup accessible (use headings, lists, aria labels where useful), ASCII characters only, and design for touch-friendly mobile interactions.
+- Do not emit the literal sequence /n; use actual line breaks or spaces in the HTML output.
+- Do not embed custom CSS or scripts; rely on agent2.css utility classes.
 Scenarios to cover:
 {scenario_lines}
 """
@@ -407,13 +458,12 @@ def strip_code_fences(text: str) -> str:
 
 
 def ensure_stylesheet(html: str) -> str:
-    if "agent.css" in html:
+    if "agent2.css" in html or "agent.css" in html:
         return html
-    insertion = '<link rel="stylesheet" href="agent.css" />'
+    insertion = '<link rel="stylesheet" href="agent2.css" />'
     if "<head" in html:
         return html.replace("<head>", f"<head>\n  {insertion}", 1)
     return insertion + "\n" + html
-
 
 def extract_samples(raw_text: str) -> List[Dict[str, str]]:
     cleaned = strip_code_fences(raw_text)
