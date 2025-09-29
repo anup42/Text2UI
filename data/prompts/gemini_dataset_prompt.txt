@@ -2,10 +2,11 @@ You craft UI training data for an assistant that renders agent or voice assistan
 Return JSON array with exactly {count} objects ({count} JSON objects per request). No commentary, no markdown fences.
 Each object must contain:
   "input": Natural language assistant response output (single paragraph, scenario-aligned, <= 4 sentences, ASCII only).
-  "output": Complete HTML5 document that uses <link rel="stylesheet" href="agent2.css" /> and the provided CSS class set.
+"output": Complete HTML5 document that uses <link rel="stylesheet" href="agent2.css" /> and the provided CSS class set.
 Guidelines:
 - Wrap content in <main class="agent-screen" data-scenario="SCENARIO"> where data-scenario matches the scenario string exactly.
 - Use only these CSS utility classes (append modifiers like secondary/subtle after agent-button when needed): {classes}.
+- Allowed non-prefixed modifiers you may apply when appropriate: {optional_modifiers}.
 - Include 2-4 sections with headers, summaries, and context-rich data tied to the scenario.
 - Provide actionable controls using <button type="button" class="agent-button ..." data-action="...">.
 - Keep markup accessible (use headings, lists, aria labels where useful), ASCII characters only, and design for touch-friendly mobile interactions.
