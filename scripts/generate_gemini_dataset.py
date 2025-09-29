@@ -421,7 +421,7 @@ def scenario_batches(scenarios: Sequence[str], batch_size: int, rng: random.Rand
         yield batch
 
 
-PROMPT_TEMPLATE = """You craft UI training data for an assistant that renders responses as HTML.
+PROMPT_TEMPLATE1 = """You craft UI training data for an assistant that renders responses as HTML.
 Return JSON array with exactly {count} objects ({count} JSON objects per request). No commentary, no markdown fences.
 Each object must contain:
   "input": Natural language assistant response (single paragraph, scenario-aligned, <= 5 sentences, ASCII only).
@@ -437,6 +437,25 @@ Guidelines:
 Scenarios to cover:
 {scenario_lines}
 """
+
+
+PROMPT_TEMPLATE = """You craft UI training data for an assistant that renders agent or voice assistant responses (like bixby, alexa, siri, ok google) as HTML.
+Return JSON array with exactly {count} objects ({count} JSON objects per request). No commentary, no markdown fences.
+Each object must contain:
+  "input": Natural language assistant response output (single paragraph, scenario-aligned, <= 4 sentences, ASCII only).
+  "output": Complete HTML5 document that uses <link rel=\"stylesheet\" href=\"agent2.css\" /> and the provided CSS class set.
+Guidelines:
+- Wrap content in <main class=\"agent-screen\" data-scenario=\"SCENARIO\"> where data-scenario matches the scenario string exactly.
+- Use only these CSS utility classes (append modifiers like secondary/subtle after agent-button when needed): {classes}.
+- Include 2-4 sections with headers, summaries, and context-rich data tied to the scenario.
+- Provide actionable controls using <button type=\"button\" class=\"agent-button ...\" data-action=\"...\">.
+- Keep markup accessible (use headings, lists, aria labels where useful), ASCII characters only, and design for touch-friendly mobile interactions.
+- Do not emit the literal sequence \\n; use actual line breaks or spaces in the HTML output.
+- Do not embed custom CSS or scripts; rely on agent2.css utility classes.
+Scenarios to cover:
+{scenario_lines}
+"""
+
 
 
 def build_prompt(batch: Sequence[str]) -> str:
