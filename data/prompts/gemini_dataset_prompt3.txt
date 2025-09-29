@@ -1,0 +1,43 @@
+You generate UI training data for an assistant that renders agent/voice-assistant responses (e.g., Bixby, Alexa, Siri, Google Assistant) as HTML screens. Return a JSON array with exactly {count} objects. No commentary, no code fences, no extra keys.
+Each object MUST have:
+  "input": One ASCII-only paragraph (2–4 sentences) that could be the assistant’s spoken/text response for the scenario. Include concrete details (entities, amounts, times) and clear action hints that map to buttons.
+  "output": A COMPLETE, MINIFIED HTML5 document that links <link rel="stylesheet" href="agent2.css" /> and uses ONLY the provided utility classes.
+
+DESIGN INTENT (LIKE A UI DESIGNER):
+- Information-first: Surface the most important facts (primary KPI/time/amount/state) at the top, before any secondary context.
+- Clear hierarchy: Use headings, short labels, and compact key–value rows so content scans in seconds. Keep copy concise and specific.
+- Actionable: Show a single primary action first, then 1–4 clearly secondary actions. Use provided button modifiers (e.g., secondary/subtle/danger) from {classes} when appropriate.
+- Readable on mobile: Favor short lines, bulleted lists for multiple items, and touch-friendly button labels (no tiny tap targets).
+- Consistency: Section order should be Summary → Details → Options/Next steps → Help/Notes (adjust naming to the scenario).
+- No invented data: Every figure, time, and label in HTML must be present in "input" or a direct restatement.
+
+STRUCTURE RULES (STRICT):
+- Output HTML MUST be a single line (no literal \n, no tabs). Use spaces only.
+- Use: <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SCENARIO</title><link rel="stylesheet" href="agent2.css" /></head><body>...</body></html>
+- Wrap content in: <main class="agent-screen" data-scenario="SCENARIO"> ... </main> where SCENARIO matches the scenario string EXACTLY.
+- Include 2–4 <section> blocks. Each section MUST have a heading (<h2>) and supporting content (<p>, <ul>/<li>, or compact key–value rows).
+- Provide 1–5 actionable controls using <button type="button" class="agent-button{optional-modifiers}" data-action="kebab_action" aria-label="Descriptive label">Label</button>. Optional data-payload is allowed.
+- <title> MUST be succinct and consistent with the "input".
+
+STYLING & CLASSES (STRICT):
+- Use ONLY these utility classes (and documented modifiers) from agent2.css: {classes}
+- Do NOT add inline styles, custom ids, custom classes, <style>, or <script>.
+- Do NOT use images, SVGs, emojis, or non-ASCII symbols. ASCII characters only.
+- For hierarchy, prefer any provided layout/typography utilities in {classes} (e.g., stack/row/grid/kv/stat/chip variants if available).
+
+ACCESSIBILITY & MOBILE:
+- Prefer semantic elements (header, section, h2, p, ul/li). Use aria-label or aria-describedby on buttons when labels could be ambiguous.
+- If a section summarizes live status (e.g., “Due today”), add aria-live="polite" on the summary paragraph.
+- Keep labels sentence-case and descriptive; avoid jargon.
+
+DATA & ACTIONS:
+- Buttons’ data-action MUST be lower-kebab-case (e.g., pay_now -> pay-now). If you include data-payload, use single quotes on the attribute and valid JSON inside with double quotes, e.g. data-payload='{"amount":1580,"currency":"INR"}'.
+- All numbers, times, currencies, names in the HTML MUST be derivable from the "input". Do NOT invent extra fields.
+- Keep HTML under ~2000 characters when reasonable.
+
+SERIALIZATION:
+- Return EXACTLY {count} JSON objects in a single JSON array. No trailing commas. No extra text.
+- The "output" string MUST be a single line HTML document (no literal \n). Use spaces to separate tags.
+
+SCENARIOS TO COVER:
+{scenario_lines}
