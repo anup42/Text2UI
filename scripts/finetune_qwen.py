@@ -68,7 +68,34 @@ def _normalise_whitespace(text: str) -> str:
 
 def _read_json_array(path: Path) -> Iterable[Dict[str, Any]]:
     with path.open("r", encoding="utf-8") as handle:
-        data = json.load(handle)
+        try:
+            data = json.load(handle)
+        except json.JSONDecodeError as exc:
+            # Some datasets may be stored as JSON Lines rather than a single
+            # JSON array. Detect this case and fall back to parsing line by line
+            # instead of failing with an "Extra data" error.
+            handle.seek(0)
+            rows: List[Dict[str, Any]] = []
+            for line_number, line in enumerate(handle, start=1):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError as line_exc:
+                    raise ValueError(
+                        f"Failed to parse JSON (line {line_number}) in {path}: {line_exc.msg}"
+                    ) from line_exc
+                if not isinstance(row, dict):
+                    raise ValueError(
+                        f"JSON dataset entries must be objects; found {type(row).__name__} at line {line_number}"
+                    )
+                rows.append(row)
+
+            if not rows:
+                raise ValueError(f"Could not parse JSON data from {path}: {exc.msg}") from exc
+
+            data = rows
 
     if not isinstance(data, list):
         raise ValueError(f"Expected a list of objects in {path}, found {type(data).__name__}")
