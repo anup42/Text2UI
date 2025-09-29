@@ -16,7 +16,7 @@ import re
 import time
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, Iterator, List, Sequence, Tuple
+from typing import Dict, Iterator, List, Mapping, Sequence, Tuple
 
 try:  # Optional dependency, required only when provider == "gemini"
     import google.generativeai as genai  # type: ignore
@@ -474,18 +474,46 @@ class _PromptTemplateDict(dict):
         return ""
 
 
+_PROMPT_PLACEHOLDER_PATTERN = re.compile(r"{([a-zA-Z0-9_-]+)}")
+
+
+def _render_prompt_template(template: str, replacements: Mapping[str, object]) -> str:
+    """Render the prompt template safely.
+
+    The previous implementation relied on :meth:`str.format_map`, which chokes when
+    scenario strings contain curly braces. That meant legitimate scenario text such
+    as ``{"amount":1580,"currency":"INR"}`` triggered ``ValueError`` because
+    ``str.format`` interprets the text after ``:`` as a format specifier. By using a
+    simple placeholder substitution we only replace known template fields (like
+    ``{count}``) and leave everything else untouched, preserving literal braces in
+    scenarios.
+    """
+
+    def replace(match: re.Match[str]) -> str:
+        key = match.group(1)
+        try:
+            value = replacements[key]
+        except KeyError:
+            return ""
+        if not isinstance(value, str):
+            return str(value)
+        return value
+
+    return _PROMPT_PLACEHOLDER_PATTERN.sub(replace, template)
+
+
 def build_prompt(batch: Sequence[str]) -> str:
     scenario_lines = "\n".join(f"{idx + 1}. {name}" for idx, name in enumerate(batch))
     classes = ", ".join(CSS_CLASSES)
     optional_modifiers = ", ".join(CSS_OPTIONAL_MODIFIERS)
     template = get_prompt_template()
-    replacements = _PromptTemplateDict(
+    replacements: Mapping[str, object] = _PromptTemplateDict(
         count=len(batch),
         classes=classes,
         scenario_lines=scenario_lines,
         optional_modifiers=optional_modifiers,
     )
-    return template.format_map(replacements)
+    return _render_prompt_template(template, replacements)
 
 
 def strip_code_fences(text: str) -> str:
