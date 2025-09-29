@@ -423,7 +423,7 @@ def scenario_batches(scenarios: Sequence[str], batch_size: int, rng: random.Rand
 
 
 PROMPT_TEMPLATE_PATH = (
-    Path(__file__).resolve().parent.parent / "data" / "prompt" / "gemini_dataset_prompt.txt"
+    Path(__file__).resolve().parent.parent / "data" / "prompts" / "gemini_dataset_prompt.txt"
 )
 
 
