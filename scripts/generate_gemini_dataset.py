@@ -39,6 +39,12 @@ DEFAULT_GEMINI_MODEL = "gemini-2.5-pro"
 DEFAULT_OPENAI_MODEL = "gpt-4.1"
 DEFAULT_CACHE_SUFFIX = ".cache.jsonl"
 DEFAULT_SECRETS_FILE = Path("configs/api_keys2.json")
+DEFAULT_PROMPT_TEMPLATE_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "data"
+    / "prompts"
+    / "gemini_dataset_prompt.txt"
+)
 
 
 def load_secrets_dict(path: Path) -> Dict[str, object]:
@@ -194,6 +200,12 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=Path("data/samples/text2ui/generated_dataset.json"),
         help="Path to write the final JSON array.",
+    )
+    parser.add_argument(
+        "--prompt-template",
+        type=Path,
+        default=DEFAULT_PROMPT_TEMPLATE_PATH,
+        help="Path to the prompt template file used for generation.",
     )
     parser.add_argument(
         "--cache-file",
@@ -422,19 +434,23 @@ def scenario_batches(scenarios: Sequence[str], batch_size: int, rng: random.Rand
         yield batch
 
 
-PROMPT_TEMPLATE_PATH = (
-    Path(__file__).resolve().parent.parent / "data" / "prompts" / "gemini_dataset_prompt.txt"
-)
+_PROMPT_TEMPLATE_PATH = DEFAULT_PROMPT_TEMPLATE_PATH
 
 
 @lru_cache(maxsize=1)
 def get_prompt_template() -> str:
     try:
-        return PROMPT_TEMPLATE_PATH.read_text(encoding="utf-8")
+        return _PROMPT_TEMPLATE_PATH.read_text(encoding="utf-8")
     except FileNotFoundError as exc:  # pragma: no cover - depends on external file
         raise FileNotFoundError(
-            f"Prompt template file not found at {PROMPT_TEMPLATE_PATH}"
+            f"Prompt template file not found at {_PROMPT_TEMPLATE_PATH}"
         ) from exc
+
+
+def set_prompt_template_path(path: Path) -> None:
+    global _PROMPT_TEMPLATE_PATH
+    _PROMPT_TEMPLATE_PATH = path
+    get_prompt_template.cache_clear()
 
 
 def build_prompt(batch: Sequence[str]) -> str:
@@ -495,6 +511,7 @@ def write_final_dataset(path: Path, samples: Sequence[Dict[str, str]]) -> None:
 
 def main() -> None:
     args = parse_args()
+    set_prompt_template_path(args.prompt_template)
     logging.basicConfig(
         level=logging.INFO,
         format="[%(asctime)s] %(levelname)s: %(message)s",
