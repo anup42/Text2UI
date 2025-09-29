@@ -642,6 +642,13 @@ def main() -> None:
                     rotation_attempts += 1
                     if rotation_attempts >= max_rotations:
                         raise
+                    backoff = max(args.min_interval, args.retry_backoff * rotation_attempts)
+                    logging.warning(
+                        "Gemini request failed with %s. Sleeping %.1f s before rotating credentials.",
+                        rate_err,
+                        backoff,
+                    )
+                    time.sleep(backoff)
                     rotate_credentials(rate_err)
                     continue
 
