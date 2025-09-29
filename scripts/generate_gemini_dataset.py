@@ -14,6 +14,7 @@ import os
 import random
 import re
 import time
+from functools import lru_cache
 from pathlib import Path
 from typing import Dict, Iterator, List, Sequence, Tuple
 
@@ -421,47 +422,25 @@ def scenario_batches(scenarios: Sequence[str], batch_size: int, rng: random.Rand
         yield batch
 
 
-PROMPT_TEMPLATE1 = """You craft UI training data for an assistant that renders responses as HTML.
-Return JSON array with exactly {count} objects ({count} JSON objects per request). No commentary, no markdown fences.
-Each object must contain:
-  "input": Natural language assistant response (single paragraph, scenario-aligned, <= 5 sentences, ASCII only).
-  "output": Complete HTML5 document that uses <link rel=\"stylesheet\" href=\"agent2.css\" /> and the provided CSS class set.
-Guidelines:
-- Wrap content in <main class=\"agent-screen\" data-scenario=\"SCENARIO\"> where data-scenario matches the scenario string exactly.
-- Use only these CSS utility classes (append modifiers like secondary/subtle after agent-button when needed): {classes}.
-- Include 2-4 sections with headers, summaries, and context-rich data tied to the scenario.
-- Provide actionable controls using <button type=\"button\" class=\"agent-button ...\" data-action=\"...\">.
-- Keep markup accessible (use headings, lists, aria labels where useful), ASCII characters only, and design for touch-friendly mobile interactions.
-- Do not emit the literal sequence /n; use actual line breaks or spaces in the HTML output.
-- Do not embed custom CSS or scripts; rely on agent2.css utility classes.
-Scenarios to cover:
-{scenario_lines}
-"""
+PROMPT_TEMPLATE_PATH = (
+    Path(__file__).resolve().parent.parent / "data" / "prompt" / "gemini_dataset_prompt.txt"
+)
 
 
-PROMPT_TEMPLATE = """You craft UI training data for an assistant that renders agent or voice assistant responses (like bixby, alexa, siri, ok google) as HTML.
-Return JSON array with exactly {count} objects ({count} JSON objects per request). No commentary, no markdown fences.
-Each object must contain:
-  "input": Natural language assistant response output (single paragraph, scenario-aligned, <= 4 sentences, ASCII only).
-  "output": Complete HTML5 document that uses <link rel=\"stylesheet\" href=\"agent2.css\" /> and the provided CSS class set.
-Guidelines:
-- Wrap content in <main class=\"agent-screen\" data-scenario=\"SCENARIO\"> where data-scenario matches the scenario string exactly.
-- Use only these CSS utility classes (append modifiers like secondary/subtle after agent-button when needed): {classes}.
-- Include 2-4 sections with headers, summaries, and context-rich data tied to the scenario.
-- Provide actionable controls using <button type=\"button\" class=\"agent-button ...\" data-action=\"...\">.
-- Keep markup accessible (use headings, lists, aria labels where useful), ASCII characters only, and design for touch-friendly mobile interactions.
-- Do not emit the literal sequence \\n; use actual line breaks or spaces in the HTML output.
-- Do not embed custom CSS or scripts; rely on agent2.css utility classes.
-Scenarios to cover:
-{scenario_lines}
-"""
-
+@lru_cache(maxsize=1)
+def get_prompt_template() -> str:
+    try:
+        return PROMPT_TEMPLATE_PATH.read_text(encoding="utf-8")
+    except FileNotFoundError as exc:  # pragma: no cover - depends on external file
+        raise FileNotFoundError(
+            f"Prompt template file not found at {PROMPT_TEMPLATE_PATH}"
+        ) from exc
 
 
 def build_prompt(batch: Sequence[str]) -> str:
     scenario_lines = "\n".join(f"{idx + 1}. {name}" for idx, name in enumerate(batch))
     classes = ", ".join(CSS_CLASSES)
-    return PROMPT_TEMPLATE.format(
+    return get_prompt_template().format(
         count=len(batch),
         classes=classes,
         scenario_lines=scenario_lines,
