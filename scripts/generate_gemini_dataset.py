@@ -146,6 +146,18 @@ CSS_CLASSES = [
     "agent-toggle",
 ]
 
+CSS_OPTIONAL_MODIFIERS = [
+    "secondary",
+    "subtle",
+    "danger",
+    "warning",
+    "success",
+    "info",
+    "good",
+    "warn",
+    "active",
+]
+
 RATE_LIMIT_ERRORS: Tuple[type[BaseException], ...] = tuple()
 if google_exceptions:  # pragma: no cover - depends on optional dependency
     RATE_LIMIT_ERRORS = (
@@ -453,14 +465,27 @@ def set_prompt_template_path(path: Path) -> None:
     get_prompt_template.cache_clear()
 
 
+class _PromptTemplateDict(dict):
+    def __missing__(self, key: str) -> str:  # pragma: no cover - simple fallback
+        if "-" in key:
+            alias = key.replace("-", "_")
+            if alias in self:
+                return self[alias]
+        return ""
+
+
 def build_prompt(batch: Sequence[str]) -> str:
     scenario_lines = "\n".join(f"{idx + 1}. {name}" for idx, name in enumerate(batch))
     classes = ", ".join(CSS_CLASSES)
-    return get_prompt_template().format(
+    optional_modifiers = ", ".join(CSS_OPTIONAL_MODIFIERS)
+    template = get_prompt_template()
+    replacements = _PromptTemplateDict(
         count=len(batch),
         classes=classes,
         scenario_lines=scenario_lines,
+        optional_modifiers=optional_modifiers,
     )
+    return template.format_map(replacements)
 
 
 def strip_code_fences(text: str) -> str:
