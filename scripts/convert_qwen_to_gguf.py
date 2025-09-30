@@ -439,8 +439,14 @@ _OUTTYPE_ALIASES = {
     "q5_k_s": "q5_1",
     "q6_k": "q6_0",
     "q8_k": "q8_0",
+    "gguf.q4_0": "q4_0",
+    "ggml.q4_0": "q4_0",
 }
 _OUTTYPE_FALLBACK_ORDER = ("q8_0", "f16", "bf16", "f32", "auto")
+
+
+def _canonicalize_outtype(name: str) -> str:
+    return _OUTTYPE_ALIASES.get(name.lower(), name.lower())
 
 
 def _inspect_converter(convert_script: Path) -> dict[str, object]:
@@ -479,18 +485,22 @@ def _inspect_converter(convert_script: Path) -> dict[str, object]:
 
 def _normalize_outtype(requested: str, supported: set[str]) -> tuple[str, str | None]:
     requested_lower = requested.lower()
-    normalized_lower = _OUTTYPE_ALIASES.get(requested_lower, requested_lower)
-    supported_lookup = {value.lower(): value for value in supported}
+    canonical_requested = _canonicalize_outtype(requested)
+    supported_lookup: dict[str, str] = {}
+    for value in supported:
+        canonical = _canonicalize_outtype(value)
+        supported_lookup.setdefault(canonical, value)
     message: str | None = None
     if supported_lookup:
-        if normalized_lower in supported_lookup:
-            selected = supported_lookup[normalized_lower]
+        if canonical_requested in supported_lookup:
+            selected = supported_lookup[canonical_requested]
             if selected.lower() != requested_lower:
                 message = f"Requested outtype '{requested}' mapped to '{selected}' for compatibility."
             return selected, message
         for candidate in _OUTTYPE_FALLBACK_ORDER:
-            if candidate.lower() in supported_lookup:
-                selected = supported_lookup[candidate.lower()]
+            canonical_candidate = _canonicalize_outtype(candidate)
+            if canonical_candidate in supported_lookup:
+                selected = supported_lookup[canonical_candidate]
                 message = f"Requested outtype '{requested}' not supported; using '{selected}'."
                 return selected, message
         selected = next(iter(supported_lookup.values()))
