@@ -442,6 +442,15 @@ _OUTTYPE_ALIASES = {
     "gguf.q4_0": "q4_0",
     "ggml.q4_0": "q4_0",
 }
+
+_LEGACY_OUTTYPE_SYNONYMS = {
+    "q4_0": "q4_k_m",
+    "q4_1": "q4_k_s",
+    "q5_0": "q5_k_m",
+    "q5_1": "q5_k_s",
+    "q6_0": "q6_k",
+    "q8_0": "q8_k",
+}
 _OUTTYPE_FALLBACK_ORDER = ("q8_0", "f16", "bf16", "f32", "auto")
 
 
@@ -460,6 +469,7 @@ def _inspect_converter(convert_script: Path) -> dict[str, object]:
             "accepts_outtype_flag": True,
             "accepts_dtype_flag": False,
             "outtype_choices": set(),
+            "legacy_outtypes": set(),
         }
     accepts_model_flag = 'parser.add_argument("--model"' in source
     accepts_positional_model = 'parser.add_argument("model"' in source
@@ -473,6 +483,11 @@ def _inspect_converter(convert_script: Path) -> dict[str, object]:
             value = raw.strip().strip("'").strip('"')
             if value:
                 outtype_choices.add(value)
+    legacy_outtypes: set[str] = set()
+    lower_source = source.lower()
+    for canonical, legacy in _LEGACY_OUTTYPE_SYNONYMS.items():
+        if legacy in lower_source:
+            legacy_outtypes.add(canonical)
     return {
         "accepts_model_flag": accepts_model_flag,
         "accepts_positional_model": accepts_positional_model,
@@ -480,10 +495,13 @@ def _inspect_converter(convert_script: Path) -> dict[str, object]:
         "accepts_outtype_flag": accepts_outtype_flag,
         "accepts_dtype_flag": accepts_dtype_flag,
         "outtype_choices": outtype_choices,
+        "legacy_outtypes": legacy_outtypes,
     }
 
 
-def _normalize_outtype(requested: str, supported: set[str]) -> tuple[str, str | None]:
+def _normalize_outtype(
+    requested: str, supported: set[str], legacy_supported: set[str]
+) -> tuple[str, str | None]:
     requested_lower = requested.lower()
     canonical_requested = _canonicalize_outtype(requested)
     supported_lookup: dict[str, str] = {}
@@ -506,6 +524,15 @@ def _normalize_outtype(requested: str, supported: set[str]) -> tuple[str, str | 
         selected = next(iter(supported_lookup.values()))
         message = f"Requested outtype '{requested}' not supported; using '{selected}'."
         return selected, message
+    canonical_requested = canonical_requested.lower()
+    if legacy_supported:
+        if canonical_requested in legacy_supported:
+            legacy_name = _LEGACY_OUTTYPE_SYNONYMS.get(canonical_requested)
+            if legacy_name:
+                message = (
+                    f"Requested outtype '{requested}' mapped to legacy name '{legacy_name}' for compatibility."
+                )
+                return legacy_name, message
     normalized = _OUTTYPE_ALIASES.get(requested_lower, requested)
     if isinstance(normalized, str) and normalized.lower() != requested_lower:
         message = f"Requested outtype '{requested}' mapped to '{normalized}' for compatibility."
@@ -556,7 +583,9 @@ def _run_converter(
 ) -> None:
     gguf_out.parent.mkdir(parents=True, exist_ok=True)
     features = _inspect_converter(convert_script)
-    selected_outtype, outtype_message = _normalize_outtype(outtype, features["outtype_choices"])
+    selected_outtype, outtype_message = _normalize_outtype(
+        outtype, features["outtype_choices"], features.get("legacy_outtypes", set())
+    )
     cmd = [sys.executable, str(convert_script)]
     if features["accepts_model_flag"] and not features["accepts_positional_model"]:
         cmd.extend(["--model", str(model_dir)])
