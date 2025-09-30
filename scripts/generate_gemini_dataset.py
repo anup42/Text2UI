@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-"""Generate assistant to HTML training samples with Gemini Pro or ChatGPT.
-
-This script batches scenario prompts, asks either Gemini or ChatGPT for HTML UIs that
-leverage `agent2.css` (backward compatible with agent.css), and writes the aggregated dataset to JSON.
-"""
-
 from __future__ import annotations
 
 import argparse
