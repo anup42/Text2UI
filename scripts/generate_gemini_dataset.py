@@ -164,6 +164,15 @@ if google_exceptions:  # pragma: no cover - depends on optional dependency
         google_exceptions.Aborted,
     )
 
+KEY_FAILURE_ERRORS: Tuple[type[BaseException], ...] = tuple()
+if google_exceptions:  # pragma: no cover - depends on optional dependency
+    failure_candidates: List[type[BaseException]] = []
+    for name in ("PermissionDenied", "Unauthenticated"):
+        candidate = getattr(google_exceptions, name, None)
+        if isinstance(candidate, type) and issubclass(candidate, BaseException):
+            failure_candidates.append(candidate)
+    KEY_FAILURE_ERRORS = tuple(failure_candidates)
+
 OPENAI_RETRY_ERRORS: Tuple[type[BaseException], ...] = tuple()
 if openai_module is not None:  # pragma: no cover - depends on optional dependency
     candidates: List[type[BaseException]] = []
@@ -436,6 +445,50 @@ def gather_gemini_credentials(args: argparse.Namespace) -> tuple[list[str], list
     models = [m for m in models if m]
     return keys, models
 
+
+class GeminiKeyManager:
+    """Assign unique Gemini API keys to workers and rotate failing keys."""
+
+    def __init__(self, keys: Sequence[str], thread_count: int):
+        if thread_count > len(keys):
+            raise ValueError("thread_count cannot exceed the number of available keys")
+        self._lock = Lock()
+        self._initial = list(keys[:thread_count])
+        self._available: List[str] = list(keys[thread_count:])
+        self._assignments: Dict[int, str] = {}
+
+    def get_key(self, worker_id: int) -> str:
+        with self._lock:
+            if worker_id in self._assignments:
+                return self._assignments[worker_id]
+            if worker_id < len(self._initial):
+                key = self._initial[worker_id]
+            elif self._available:
+                key = self._available.pop(0)
+            else:  # pragma: no cover - defensive branch
+                raise RuntimeError("No Gemini API key available for worker %d" % worker_id)
+            self._assignments[worker_id] = key
+            return key
+
+    def replace_key(self, worker_id: int) -> str | None:
+        with self._lock:
+            self._assignments.pop(worker_id, None)
+            if self._available:
+                key = self._available.pop(0)
+                self._assignments[worker_id] = key
+                return key
+            return None
+
+
+def is_key_auth_failure(error: BaseException) -> bool:
+    if KEY_FAILURE_ERRORS and isinstance(error, KEY_FAILURE_ERRORS):
+        return True
+    message = str(error).lower()
+    for needle in ("api key", "permission_denied", "unauthenticated", "invalid key"):
+        if needle in message:
+            return True
+    return False
+
 def scenario_batches(scenarios: Sequence[str], batch_size: int, rng: random.Random) -> Iterator[List[str]]:
     if batch_size <= 0:
         raise ValueError("batch_size must be positive")
@@ -670,6 +723,7 @@ def main() -> None:
         task_queue: Queue[tuple[int, int, str]] = Queue()
         result_queue: Queue[tuple[int, int, str | None, BaseException | None]] = Queue()
         configure_lock = Lock()
+        key_manager = GeminiKeyManager(gemini_keys, thread_count)
 
         def extract_response_text(response: object) -> str:
             response_text = getattr(response, "text", None)
@@ -689,7 +743,8 @@ def main() -> None:
                 raise ValueError("Received empty response text from Gemini.")
             return combined
 
-        def worker_loop(worker_id: int, api_key: str, model_name: str) -> None:
+        def worker_loop(worker_id: int, model_name: str) -> None:
+            api_key = key_manager.get_key(worker_id)
             with configure_lock:
                 genai.configure(api_key=api_key)  # type: ignore[arg-type]
                 model = genai.GenerativeModel(model_name)  # type: ignore[attr-defined]
@@ -725,6 +780,27 @@ def main() -> None:
                         break
                     except Exception as err:  # noqa: BLE001 - inspect for retryable types
                         last_error = err
+                        if is_key_auth_failure(err):
+                            replacement_key = key_manager.replace_key(worker_id)
+                            if not replacement_key:
+                                logging.error(
+                                    "Worker %d Gemini API key failed and no replacements remain: %s",
+                                    worker_id + 1,
+                                    err,
+                                )
+                                break
+                            logging.warning(
+                                "Worker %d Gemini API key failed (%s); switching to a new key.",
+                                worker_id + 1,
+                                err,
+                            )
+                            api_key = replacement_key
+                            with configure_lock:
+                                genai.configure(api_key=api_key)  # type: ignore[arg-type]
+                                model = genai.GenerativeModel(model_name)  # type: ignore[attr-defined]
+                            last_request_ts = 0.0
+                            attempt = 0
+                            continue
                         should_retry = recoverable_types and isinstance(err, recoverable_types)
                         backoff = args.retry_backoff * attempt
                         logging.warning(
@@ -746,7 +822,7 @@ def main() -> None:
             model_name = gemini_models[idx % len(gemini_models)] if gemini_models else args.model
             worker = Thread(
                 target=worker_loop,
-                args=(idx, gemini_keys[idx], model_name),
+                args=(idx, model_name),
                 daemon=True,
             )
             worker.start()
