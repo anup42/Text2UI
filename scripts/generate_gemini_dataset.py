@@ -10,6 +10,8 @@ import re
 import time
 from functools import lru_cache
 from pathlib import Path
+from queue import Empty, Queue
+from threading import Lock, Thread
 from typing import Dict, Iterator, List, Mapping, Sequence, Tuple
 
 try:  # Optional dependency, required only when provider == "gemini"
@@ -277,6 +279,14 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=5,
         help="Maximum retry attempts per batch on recoverable errors.",
+    )
+    parser.add_argument(
+        "--threads",
+        type=int,
+        default=5,
+        help=(
+            "Number of parallel Gemini workers to run. Each worker uses a separate API key."
+        ),
     )
     parser.add_argument(
         "--retry-backoff",
@@ -567,119 +577,6 @@ def main() -> None:
 
     api_key = resolve_api_key(args)
 
-    if args.provider == "gemini":
-        gemini_keys, gemini_models = gather_gemini_credentials(args)
-        key_index = 0
-        model_index = 0
-
-        def configure_model() -> object:
-            genai.configure(api_key=gemini_keys[key_index])  # type: ignore[arg-type]
-            return genai.GenerativeModel(gemini_models[model_index])  # type: ignore[attr-defined]
-
-        model = configure_model()
-        max_rotations = len(gemini_keys) * max(1, len(gemini_models))
-
-        def rotate_credentials(reason: object) -> None:
-            nonlocal key_index, model_index, model
-            switched_key = False
-            if len(gemini_keys) > 1:
-                key_index = (key_index + 1) % len(gemini_keys)
-                switched_key = True
-            if not switched_key and len(gemini_models) > 1:
-                model_index = (model_index + 1) % len(gemini_models)
-            elif switched_key and key_index == 0 and len(gemini_models) > 1:
-                model_index = (model_index + 1) % len(gemini_models)
-            logging.info(
-                "Switching Gemini credentials to key %d/%d and model %s after %s.",
-                key_index + 1,
-                len(gemini_keys),
-                gemini_models[model_index],
-                reason,
-            )
-            model = configure_model()
-
-        def extract_response_text(response: object) -> str:
-            response_text = getattr(response, "text", None)
-            if response_text:
-                return str(response_text).strip()
-            chunks: List[str] = []
-            if hasattr(response, "candidates"):
-                for candidate in getattr(response, "candidates", []):
-                    content = getattr(candidate, "content", None)
-                    parts = getattr(content, "parts", []) if content is not None else []
-                    for part in parts:
-                        text_part = getattr(part, "text", None)
-                        if text_part:
-                            chunks.append(text_part)
-            combined = "".join(chunks).strip()
-            if not combined:
-                raise ValueError("Received empty response text from Gemini.")
-            return combined
-
-        def call_model(prompt: str) -> str:
-            nonlocal model
-            rotation_attempts = 0
-            while True:
-                try:
-                    response = model.generate_content(
-                        prompt,
-                        generation_config={
-                            "temperature": args.temperature,
-                            "top_p": args.top_p,
-                            "max_output_tokens": args.max_output_tokens,
-                            "response_mime_type": "application/json",
-                        },
-                        request_options={"timeout": 180},
-                    )
-                    return extract_response_text(response)
-                except RATE_LIMIT_ERRORS as rate_err:  # type: ignore[arg-type]
-                    rotation_attempts += 1
-                    if rotation_attempts >= max_rotations:
-                        raise
-                    backoff = max(args.min_interval, args.retry_backoff * rotation_attempts)
-                    logging.warning(
-                        "Gemini request failed with %s. Sleeping %.1f s before rotating credentials.",
-                        rate_err,
-                        backoff,
-                    )
-                    time.sleep(backoff)
-                    rotate_credentials(rate_err)
-                    continue
-
-        recoverable_types = RATE_LIMIT_ERRORS
-    else:
-        client = OpenAI(api_key=api_key)  # type: ignore[call-arg]
-
-        def call_model(prompt: str) -> str:
-            response = client.responses.create(
-                model=args.openai_model,
-                input=prompt,
-                temperature=args.temperature,
-                top_p=args.top_p,
-                max_output_tokens=args.max_output_tokens,
-                timeout=180,
-            )
-            response_text = getattr(response, "output_text", None)
-            if response_text:
-                return response_text.strip()
-            chunks: List[str] = []
-            for item in getattr(response, "output", []):
-                content = getattr(item, "content", None)
-                if isinstance(content, str):
-                    chunks.append(content)
-                    continue
-                if isinstance(content, list):
-                    for part in content:
-                        text_part = getattr(part, "text", None)
-                        if isinstance(text_part, str):
-                            chunks.append(text_part)
-            combined = "".join(chunks).strip()
-            if not combined:
-                raise ValueError("Received empty response text from ChatGPT.")
-            return combined
-
-        recoverable_types = OPENAI_RETRY_ERRORS
-
 
     scenarios = load_scenarios(args.scenario_file)
     cache_path = args.cache_file or args.output.with_suffix(DEFAULT_CACHE_SUFFIX)
@@ -705,54 +602,19 @@ def main() -> None:
     random_generator = random.Random(args.seed)
     batch_iter = scenario_batches(scenarios, args.samples_per_call, random_generator)
 
-    last_request_ts = 0.0
     total_target = args.target_samples
     success_batches = 0
     start_time = time.time()
 
-    while len(records) < total_target:
-        remaining = total_target - len(records)
-        batch_size = min(args.samples_per_call, remaining)
-        batch = next(batch_iter)[:batch_size]
-        prompt = build_prompt(batch)
-
-        attempt = 0
-        response_text = None
-        while attempt < args.max_retries:
-            attempt += 1
-            wait_for = args.min_interval - (time.time() - last_request_ts)
-            if wait_for > 0:
-                time.sleep(wait_for)
-            try:
-                response_text = call_model(prompt)
-                last_request_ts = time.time()
-                break
-            except Exception as err:  # noqa: BLE001 - we inspect recoverable types below
-                should_retry = recoverable_types and isinstance(err, recoverable_types)
-                backoff = args.retry_backoff * attempt
-                logging.warning(
-                    "%s call failed (%s). Sleeping %.1f s before retry %d/%d.",
-                    args.provider.capitalize(),
-                    err,
-                    backoff,
-                    attempt,
-                    args.max_retries,
-                )
-                if attempt >= args.max_retries or not should_retry:
-                    if not should_retry:
-                        logging.error("Non-recoverable error from provider: %s", err)
-                        raise
-                time.sleep(backoff)
-
-        if not response_text:
-            raise RuntimeError("Failed to obtain a valid response after retries.")
-
+    def process_response(response_text: str, batch_size: int) -> None:
+        nonlocal success_batches
+        if len(records) >= total_target:
+            return
         try:
-            #print(response_text)
             samples = extract_samples(response_text)
         except ValueError as err:
             logging.warning("Could not parse model response: %s", err)
-            continue
+            return
 
         if len(samples) > batch_size:
             samples = samples[:batch_size]
@@ -772,7 +634,7 @@ def main() -> None:
 
         if not fresh:
             logging.warning("No new samples extracted from batch; retrying next batch.")
-            continue
+            return
 
         records.extend(fresh)
         append_cache(cache_path, fresh)
@@ -788,6 +650,217 @@ def main() -> None:
                 (len(records) / total_target) * 100.0,
                 samples_per_second,
             )
+
+    if args.provider == "gemini":
+        gemini_keys, gemini_models = gather_gemini_credentials(args)
+        if not gemini_keys:
+            raise RuntimeError("No Gemini API keys available. Provide at least one key in the secrets file or environment.")
+
+        thread_count = max(1, min(args.threads, len(gemini_keys)))
+        if thread_count < args.threads:
+            logging.warning(
+                "Requested %d threads but only %d Gemini API keys available; reducing thread count.",
+                args.threads,
+                thread_count,
+            )
+
+        recoverable_types = RATE_LIMIT_ERRORS
+
+        stop_token = object()
+        task_queue: Queue[tuple[int, int, str]] = Queue()
+        result_queue: Queue[tuple[int, int, str | None, BaseException | None]] = Queue()
+        configure_lock = Lock()
+
+        def extract_response_text(response: object) -> str:
+            response_text = getattr(response, "text", None)
+            if response_text:
+                return str(response_text).strip()
+            chunks: List[str] = []
+            if hasattr(response, "candidates"):
+                for candidate in getattr(response, "candidates", []):
+                    content = getattr(candidate, "content", None)
+                    parts = getattr(content, "parts", []) if content is not None else []
+                    for part in parts:
+                        text_part = getattr(part, "text", None)
+                        if text_part:
+                            chunks.append(text_part)
+            combined = "".join(chunks).strip()
+            if not combined:
+                raise ValueError("Received empty response text from Gemini.")
+            return combined
+
+        def worker_loop(worker_id: int, api_key: str, model_name: str) -> None:
+            with configure_lock:
+                genai.configure(api_key=api_key)  # type: ignore[arg-type]
+                model = genai.GenerativeModel(model_name)  # type: ignore[attr-defined]
+            last_request_ts = 0.0
+            while True:
+                item = task_queue.get()
+                if item is stop_token:
+                    task_queue.task_done()
+                    break
+                task_id, batch_size, prompt = item
+                attempt = 0
+                response_text: str | None = None
+                last_error: BaseException | None = None
+                while attempt < args.max_retries:
+                    attempt += 1
+                    wait_for = args.min_interval - (time.time() - last_request_ts)
+                    if wait_for > 0:
+                        time.sleep(wait_for)
+                    try:
+                        response = model.generate_content(
+                            prompt,
+                            generation_config={
+                                "temperature": args.temperature,
+                                "top_p": args.top_p,
+                                "max_output_tokens": args.max_output_tokens,
+                                "response_mime_type": "application/json",
+                            },
+                            request_options={"timeout": 180},
+                        )
+                        response_text = extract_response_text(response)
+                        last_request_ts = time.time()
+                        last_error = None
+                        break
+                    except Exception as err:  # noqa: BLE001 - inspect for retryable types
+                        last_error = err
+                        should_retry = recoverable_types and isinstance(err, recoverable_types)
+                        backoff = args.retry_backoff * attempt
+                        logging.warning(
+                            "Worker %d Gemini call failed (%s). Sleeping %.1f s before retry %d/%d.",
+                            worker_id + 1,
+                            err,
+                            max(args.min_interval, backoff),
+                            attempt,
+                            args.max_retries,
+                        )
+                        if attempt >= args.max_retries or not should_retry:
+                            break
+                        time.sleep(max(args.min_interval, backoff))
+                result_queue.put((task_id, batch_size, response_text, last_error))
+                task_queue.task_done()
+
+        threads: List[Thread] = []
+        for idx in range(thread_count):
+            model_name = gemini_models[idx % len(gemini_models)] if gemini_models else args.model
+            worker = Thread(
+                target=worker_loop,
+                args=(idx, gemini_keys[idx], model_name),
+                daemon=True,
+            )
+            worker.start()
+            threads.append(worker)
+
+        logging.info("Spawning %d Gemini worker threads.", thread_count)
+
+        inflight: Dict[int, int] = {}
+        next_task_id = 0
+
+        try:
+            while len(records) < total_target or inflight:
+                if len(records) < total_target:
+                    while (
+                        len(inflight) < thread_count
+                        and len(records) + len(inflight) * args.samples_per_call < total_target
+                    ):
+                        remaining = total_target - len(records)
+                        batch_size = min(args.samples_per_call, remaining)
+                        batch = next(batch_iter)[:batch_size]
+                        prompt = build_prompt(batch)
+                        task_id = next_task_id
+                        next_task_id += 1
+                        inflight[task_id] = batch_size
+                        task_queue.put((task_id, batch_size, prompt))
+                try:
+                    task_id, batch_size, response_text, error = result_queue.get(timeout=0.5)
+                except Empty:
+                    continue
+                inflight.pop(task_id, None)
+                if not response_text:
+                    if error and not (
+                        recoverable_types and isinstance(error, recoverable_types)
+                    ):
+                        logging.error("Non-recoverable error from Gemini worker: %s", error)
+                        raise error
+                    raise RuntimeError("Failed to obtain a valid response after retries.") from error
+                process_response(response_text, batch_size)
+        finally:
+            task_queue.join()
+            for _ in threads:
+                task_queue.put(stop_token)
+            for worker in threads:
+                worker.join()
+    else:
+        client = OpenAI(api_key=api_key)  # type: ignore[call-arg]
+        recoverable_types = OPENAI_RETRY_ERRORS
+        last_request_ts = 0.0
+
+        while len(records) < total_target:
+            remaining = total_target - len(records)
+            batch_size = min(args.samples_per_call, remaining)
+            batch = next(batch_iter)[:batch_size]
+            prompt = build_prompt(batch)
+
+            attempt = 0
+            response_text = None
+            while attempt < args.max_retries:
+                attempt += 1
+                wait_for = args.min_interval - (time.time() - last_request_ts)
+                if wait_for > 0:
+                    time.sleep(wait_for)
+                try:
+                    response = client.responses.create(
+                        model=args.openai_model,
+                        input=prompt,
+                        temperature=args.temperature,
+                        top_p=args.top_p,
+                        max_output_tokens=args.max_output_tokens,
+                        timeout=180,
+                    )
+                    response_text = getattr(response, "output_text", None)
+                    if response_text:
+                        response_text = response_text.strip()
+                    else:
+                        chunks: List[str] = []
+                        for item in getattr(response, "output", []):
+                            content = getattr(item, "content", None)
+                            if isinstance(content, str):
+                                chunks.append(content)
+                                continue
+                            if isinstance(content, list):
+                                for part in content:
+                                    text_part = getattr(part, "text", None)
+                                    if isinstance(text_part, str):
+                                        chunks.append(text_part)
+                        combined = "".join(chunks).strip()
+                        if combined:
+                            response_text = combined
+                        else:
+                            raise ValueError("Received empty response text from ChatGPT.")
+                    last_request_ts = time.time()
+                    break
+                except Exception as err:  # noqa: BLE001 - inspect recoverable types
+                    should_retry = recoverable_types and isinstance(err, recoverable_types)
+                    backoff = args.retry_backoff * attempt
+                    logging.warning(
+                        "%s call failed (%s). Sleeping %.1f s before retry %d/%d.",
+                        args.provider.capitalize(),
+                        err,
+                        backoff,
+                        attempt,
+                        args.max_retries,
+                    )
+                    if attempt >= args.max_retries or not should_retry:
+                        if not should_retry:
+                            logging.error("Non-recoverable error from provider: %s", err)
+                            raise
+                    time.sleep(backoff)
+
+            if not response_text:
+                raise RuntimeError("Failed to obtain a valid response after retries.")
+
+            process_response(response_text, batch_size)
 
     write_final_dataset(args.output, records[: total_target])
     total_elapsed = time.time() - start_time
