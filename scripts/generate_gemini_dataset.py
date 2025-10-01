@@ -708,6 +708,7 @@ def main() -> None:
     last_request_ts = 0.0
     total_target = args.target_samples
     success_batches = 0
+    start_time = time.time()
 
     while len(records) < total_target:
         remaining = total_target - len(records)
@@ -778,15 +779,26 @@ def main() -> None:
         success_batches += 1
 
         if success_batches % args.log_every == 0 or len(records) >= total_target:
+            elapsed = time.time() - start_time
+            samples_per_second = len(records) / elapsed if elapsed > 0 else 0.0
             logging.info(
-                "Progress: %d/%d samples (%.1f%%)",
+                "Progress: %d/%d samples (%.1f%%, %.2f samples/s)",
                 len(records),
                 total_target,
                 (len(records) / total_target) * 100.0,
+                samples_per_second,
             )
 
     write_final_dataset(args.output, records[: total_target])
-    logging.info("Generation complete. Saved %d samples to %s", total_target, args.output)
+    total_elapsed = time.time() - start_time
+    avg_speed = total_target / total_elapsed if total_elapsed > 0 else 0.0
+    logging.info(
+        "Generation complete. Saved %d samples to %s in %.2f s (%.2f samples/s)",
+        total_target,
+        args.output,
+        total_elapsed,
+        avg_speed,
+    )
     logging.info("Cache retained at %s for resume or auditing.", cache_path)
 
 
