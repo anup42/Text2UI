@@ -450,11 +450,15 @@ class GeminiKeyManager:
     """Assign unique Gemini API keys to workers and rotate failing keys."""
 
     def __init__(self, keys: Sequence[str], thread_count: int):
-        if thread_count > len(keys):
+        all_keys = list(keys)
+        if thread_count > len(all_keys):
             raise ValueError("thread_count cannot exceed the number of available keys")
         self._lock = Lock()
-        self._initial = list(keys[:thread_count])
-        self._available: List[str] = list(keys[thread_count:])
+        self._labels: Dict[str, int] = {
+            key: index + 1 for index, key in enumerate(all_keys)
+        }
+        self._initial = list(all_keys[:thread_count])
+        self._available: List[str] = list(all_keys[thread_count:])
         self._assignments: Dict[int, str] = {}
 
     def get_key(self, worker_id: int) -> str:
@@ -478,6 +482,9 @@ class GeminiKeyManager:
                 self._assignments[worker_id] = key
                 return key
             return None
+
+    def label_for(self, api_key: str) -> int | None:
+        return self._labels.get(api_key)
 
 
 def is_key_auth_failure(error: BaseException) -> bool:
@@ -745,6 +752,11 @@ def main() -> None:
 
         def worker_loop(worker_id: int, model_name: str) -> None:
             api_key = key_manager.get_key(worker_id)
+            key_label = key_manager.label_for(api_key)
+
+            def format_label(label: int | None) -> str:
+                return f" (API key #{label})" if label is not None else ""
+
             with configure_lock:
                 genai.configure(api_key=api_key)  # type: ignore[arg-type]
                 model = genai.GenerativeModel(model_name)  # type: ignore[attr-defined]
@@ -780,21 +792,26 @@ def main() -> None:
                         break
                     except Exception as err:  # noqa: BLE001 - inspect for retryable types
                         last_error = err
+                        label_hint = format_label(key_label)
                         if is_key_auth_failure(err):
                             replacement_key = key_manager.replace_key(worker_id)
                             if not replacement_key:
                                 logging.error(
-                                    "Worker %d Gemini API key failed and no replacements remain: %s",
+                                    "Worker %d Gemini API key%s failed and no replacements remain: %s",
                                     worker_id + 1,
+                                    label_hint,
                                     err,
                                 )
                                 break
                             logging.warning(
-                                "Worker %d Gemini API key failed (%s); switching to a new key.",
+                                "Worker %d Gemini API key%s failed (%s); switching to a new key.",
                                 worker_id + 1,
+                                label_hint,
                                 err,
                             )
                             api_key = replacement_key
+                            key_label = key_manager.label_for(api_key)
+                            label_hint = format_label(key_label)
                             with configure_lock:
                                 genai.configure(api_key=api_key)  # type: ignore[arg-type]
                                 model = genai.GenerativeModel(model_name)  # type: ignore[attr-defined]
@@ -803,9 +820,16 @@ def main() -> None:
                             continue
                         should_retry = recoverable_types and isinstance(err, recoverable_types)
                         backoff = args.retry_backoff * attempt
+                        normalized_error = str(err).lower()
+                        is_quota_issue = any(
+                            needle in normalized_error
+                            for needle in ("quota", "rate limit", "resource exhausted", "429")
+                        )
+                        quota_hint = label_hint if is_quota_issue else ""
                         logging.warning(
-                            "Worker %d Gemini call failed (%s). Sleeping %.1f s before retry %d/%d.",
+                            "Worker %d Gemini call failed%s (%s). Sleeping %.1f s before retry %d/%d.",
                             worker_id + 1,
+                            quota_hint,
                             err,
                             max(args.min_interval, backoff),
                             attempt,
