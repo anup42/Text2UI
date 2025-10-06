@@ -30,6 +30,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
+from torch.utils.tensorboard import SummaryWriter
+
 import torch
 from datasets import Dataset, interleave_datasets
 from transformers import (
@@ -379,6 +381,11 @@ def main() -> None:
     parser.add_argument("--mix-ratio", type=float, default=0.5,
                         help="Relative sampling ratio of voice examples vs HTML/JSON datasets")
     parser.add_argument("--lora", action="store_true", help="Enable LoRA fine-tuning instead of full fine-tune")
+    parser.add_argument(
+        "--mlp",
+        action="store_true",
+        help="Indicate that the fine-tune run trains an MLP head; tensorboard logs will be stored in /tensorboard/.",
+    )
     parser.add_argument("--lora-r", type=int, default=16)
     parser.add_argument("--lora-alpha", type=int, default=32)
     parser.add_argument("--lora-dropout", type=float, default=0.05)
@@ -496,6 +503,16 @@ def main() -> None:
     if disable_reason:
         print(disable_reason, flush=True)
 
+    if args.mlp:
+        tensorboard_dir: Optional[Path] = Path("/tensorboard")
+    elif args.tensorboard_dir is not None:
+        tensorboard_dir = args.tensorboard_dir
+    else:
+        tensorboard_dir = Path(args.output_dir) / "tensorboard"
+
+    if tensorboard_dir is not None:
+        tensorboard_dir.mkdir(parents=True, exist_ok=True)
+
     training_kwargs: Dict[str, Any] = {
         "output_dir": str(args.output_dir),
         "learning_rate": args.learning_rate,
@@ -507,11 +524,11 @@ def main() -> None:
         "warmup_ratio": args.warmup_ratio,
         "save_steps": args.save_steps,
         "logging_steps": args.logging_steps,
-        "logging_dir": str(args.tensorboard_dir) if args.tensorboard_dir else None,
+        "logging_dir": str(tensorboard_dir) if tensorboard_dir else None,
         "bf16": torch.cuda.is_available(),
         "fp16": False,
         "gradient_checkpointing": gradient_checkpointing,
-        "report_to": ["tensorboard"] if args.tensorboard_dir else None,
+        "report_to": ["tensorboard"] if tensorboard_dir else None,
         "seed": args.seed,
         "save_safetensors": False,
     }
@@ -519,6 +536,32 @@ def main() -> None:
         training_kwargs["gradient_checkpointing_kwargs"] = {"use_reentrant": False}
 
     training_args = TrainingArguments(**training_kwargs)
+
+    if tensorboard_dir is not None:
+        writer = SummaryWriter(log_dir=str(tensorboard_dir))
+        training_metadata = {
+            "model_name": args.model_name,
+            "lora": args.lora,
+            "learning_rate": args.learning_rate,
+            "weight_decay": args.weight_decay,
+            "num_train_epochs": args.num_train_epochs,
+            "per_device_train_batch_size": args.per_device_train_batch_size,
+            "gradient_accumulation_steps": args.gradient_accumulation_steps,
+            "max_grad_norm": args.max_grad_norm,
+            "warmup_ratio": args.warmup_ratio,
+            "save_steps": args.save_steps,
+            "logging_steps": args.logging_steps,
+            "seed": args.seed,
+            "gradient_checkpointing": gradient_checkpointing,
+            "dataset_voice_examples": len(voice_examples),
+            "dataset_html_examples": len(html_examples),
+            "dataset_json_examples": len(json_examples),
+            "total_training_examples": len(dataset),
+        }
+        writer.add_text("training/config", json.dumps(training_metadata, indent=2), global_step=0)
+        writer.flush()
+    else:
+        writer = None
 
     trainer = Trainer(
         model=model,
@@ -528,6 +571,9 @@ def main() -> None:
     )
 
     trainer.train()
+
+    if writer is not None:
+        writer.close()
 
     if args.lora:
         trainer.model.save_pretrained(args.output_dir, safe_serialization=False)
