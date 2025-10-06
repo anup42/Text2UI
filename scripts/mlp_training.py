@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import time
 from dataclasses import dataclass
@@ -11,6 +12,10 @@ from typing import Iterator, Tuple
 import numpy as np
 
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
+
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -88,6 +93,14 @@ def train(cfg: TrainingConfig) -> None:
     print("Starting dummy CPU training job...")
     state = TrainingState.initialize(cfg.input_dim, cfg.hidden_dim)
     best_loss = float("inf")
+
+    total_samples = cfg.epochs * cfg.steps_per_epoch * cfg.batch_size
+    sample_msg = (
+        "Total samples to be processed during training: "
+        f"{total_samples} (epochs={cfg.epochs}, steps_per_epoch={cfg.steps_per_epoch}, batch_size={cfg.batch_size})"
+    )
+    print(sample_msg)
+    logger.info(sample_msg)
 
     for epoch in range(1, cfg.epochs + 1):
         epoch_start = time.time()
