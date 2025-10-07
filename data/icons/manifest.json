@@ -1,0 +1,16 @@
+[
+  {"name": "alert-triangle", "description": "Warning, urgent attention, or error state"},
+  {"name": "calendar", "description": "Events, schedules, reminders"},
+  {"name": "check", "description": "Confirmation or success"},
+  {"name": "clock", "description": "Time or deadlines"},
+  {"name": "credit-card", "description": "Payments or billing"},
+  {"name": "download", "description": "Downloads or save locally"},
+  {"name": "globe", "description": "Web, travel, or worldwide context"},
+  {"name": "home", "description": "Home or dashboard"},
+  {"name": "info", "description": "Information or help"},
+  {"name": "map-pin", "description": "Location or address"},
+  {"name": "phone", "description": "Call or contact"},
+  {"name": "shield", "description": "Security or privacy"},
+  {"name": "star", "description": "Favorites or highlights"},
+  {"name": "upload", "description": "Upload or share"}
+]
