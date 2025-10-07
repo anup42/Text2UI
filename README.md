@@ -180,6 +180,27 @@ Use the final JSONL artifacts in `data/samples/` as inputs to your downstream to
 
 The repository already includes 1,000 generated voice samples and their corresponding UI renders created with the stub generators (`use_stub = true`). They demonstrate expected schema and let you iterate on downstream tooling without GPUs. Replace them with real Qwen outputs by running the scripts without the `--use-stub` flag.
 
+## Dataset Visualization Helper
+
+Quickly preview HTML outputs stored in a JSONL dataset with the `visualize_dataset.py` utility. The script inlines the referenced CSS and captures JPEG screenshots using Playwright.
+
+1. Install the optional dependency and its browser runtime:
+
+   ```bash
+   pip install playwright
+   playwright install chromium
+   ```
+
+2. Render the first few samples to `tmp_outputs/dataset_visualizations/`:
+
+   ```bash
+   python scripts/visualize_dataset.py \
+     data/samples/text2ui-3/generated_dataset-1.cache.jsonl \
+     --count 3
+   ```
+
+Use `--output-dir` to change the destination folder and `--css-dir` to supply additional lookup paths for stylesheet files such as `agent.css` or `agent2.css`.
+
 ## Extending the Pipelines
 
 - Add more seed prompts in `data/prompts/voice_prompts_seed.jsonl` to force coverage of niche scenarios
