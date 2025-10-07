@@ -183,7 +183,7 @@ async def render_html_to_jpeg(
     # stabilize.  Older browsers may not expose ``document.fonts``, so we fall
     # back to a short delay in that case.
     try:
-        await page.evaluate("document.fonts.ready")
+        await page.evaluate("async () => { await document.fonts.ready; }")
     except Exception:
         await page.wait_for_timeout(200)
     else:
