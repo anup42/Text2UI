@@ -29,7 +29,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
 import json
+import mimetypes
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Iterable, List, Optional
@@ -46,6 +48,7 @@ except ImportError:  # pragma: no cover - handled at runtime
 
 
 CSS_LINK_PATTERN = re.compile(r"<link[^>]+href=['\"]([^'\"]+)['\"][^>]*>")
+CSS_URL_PATTERN = re.compile(r"url\((?P<quote>['\"]?)(?P<path>[^'\"\)]+)(?P=quote)\)")
 
 
 def parse_args() -> argparse.Namespace:
@@ -137,6 +140,33 @@ def build_css_search_dirs(jsonl_path: Path, extra_dirs: Optional[Iterable[Path]]
     return candidate_dirs
 
 
+
+def inline_css_local_assets(css_content: str, css_path: Path) -> str:
+    """Inline local font/image assets referenced via ``url()``."""
+
+    def replace(match: re.Match[str]) -> str:
+        resource = match.group('path').strip()
+        if not resource or resource.startswith(('data:', 'http://', 'https://', '//')):
+            return match.group(0)
+        if resource.startswith('/'):
+            return match.group(0)
+        normalized = resource.split('#', 1)[0].split('?', 1)[0]
+        asset_path = (css_path.parent / normalized).resolve()
+        if not asset_path.exists() or not asset_path.is_file():
+            return match.group(0)
+        try:
+            data = asset_path.read_bytes()
+        except OSError:
+            return match.group(0)
+        mime_type, _ = mimetypes.guess_type(asset_path.name)
+        if not mime_type:
+            mime_type = 'application/octet-stream'
+        encoded = base64.b64encode(data).decode('ascii')
+        return f"url('data:{mime_type};base64,{encoded}')"
+
+    return CSS_URL_PATTERN.sub(replace, css_content)
+
+
 def inline_css(html: str, css_dirs: Iterable[Path]) -> str:
     """Replace linked stylesheets in ``html`` with inline ``<style>`` tags."""
 
@@ -147,6 +177,7 @@ def inline_css(html: str, css_dirs: Iterable[Path]) -> str:
             print(f"[warning] CSS file '{href}' not found; keeping original link tag.")
             return match.group(0)
         css_content = css_path.read_text(encoding="utf-8")
+        css_content = inline_css_local_assets(css_content, css_path)
         return f"<style>\n{css_content}\n</style>"
 
     return CSS_LINK_PATTERN.sub(replace, html)
