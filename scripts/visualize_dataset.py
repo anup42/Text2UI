@@ -174,7 +174,20 @@ async def render_html_to_jpeg(
 
     page = await browser.new_page(viewport={"width": width, "height": 720})
     await page.set_content(html_with_css, wait_until="networkidle")
-    await page.wait_for_timeout(200)
+
+    # Ensure that web fonts (and therefore text glyphs) are fully rendered
+    # before we capture the screenshot.  Without this, Chromium occasionally
+    # grabs the frame before font loading completes, resulting in images with
+    # missing text.  ``document.fonts.ready`` resolves when all fonts are
+    # loaded (or have failed), so awaiting it gives the layout a chance to
+    # stabilize.  Older browsers may not expose ``document.fonts``, so we fall
+    # back to a short delay in that case.
+    try:
+        await page.evaluate("document.fonts.ready")
+    except Exception:
+        await page.wait_for_timeout(200)
+    else:
+        await page.wait_for_timeout(50)
     await page.screenshot(
         path=str(output_path),
         type="jpeg",
