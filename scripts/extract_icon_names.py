@@ -117,12 +117,12 @@ def _resolve_dtype(dtype: str) -> torch.dtype:
 
 def _configure_attention(backend: str) -> None:
     try:
-        if backend == "mem_efficient":
-            sdp_kernel(enable_flash=False, enable_math=False, enable_mem_efficient=True)
-        elif backend == "eager":
-            sdp_kernel(enable_flash=False, enable_math=True, enable_mem_efficient=False)
-        else:  # sdpa
-            sdp_kernel(enable_flash=False, enable_math=True, enable_mem_efficient=True)
+        if backend == "eager":
+            sdp_kernel(enable_flash=True, enable_math=True,  enable_mem_efficient=False)
+        elif backend == "sdpa":
+            sdp_kernel(enable_flash=True, enable_math=True,  enable_mem_efficient=True)
+        else:  # "mem_efficient"
+            sdp_kernel(enable_flash=True, enable_math=False, enable_mem_efficient=True)
     except Exception:
         pass
 
@@ -192,7 +192,12 @@ def generate_icon_names(
         config.model_name,
         **model_kwargs,
     )
+
     model.eval()
+    try:
+        model.enable_xformers_memory_efficient_attention()
+    except Exception:
+        pass
     if hasattr(model, "generation_config"):
         model.generation_config.use_cache = config.use_cache
 
@@ -233,8 +238,15 @@ def generate_icon_names(
                     temperature=config.temperature,
                     top_p=config.top_p,
                 )
+            input_lengths = device_inputs["attention_mask"].sum(dim=-1).tolist()
 
-            decoded = processor.batch_decode(generated_ids, skip_special_tokens=True)
+            # Slice away the prompt part so only newly generated tokens remain.
+            gen_only = []
+            for seq, in_len in zip(generated_ids, input_lengths):
+                gen_only.append(seq[in_len:])
+
+            # Now decode only the assistant’s reply (no system/user text).
+            decoded = processor.batch_decode(gen_only, skip_special_tokens=True)
             for path, text in zip(batch_paths, decoded):
                 record = {"image": str(path), "icon_names": text.strip()}
                 handle.write(json.dumps(record, ensure_ascii=False))
@@ -273,6 +285,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    print(torch.__version__)
 
     if args.load_in_4bit and args.load_in_8bit:
         raise ValueError("Choose only one of --load-in-4bit or --load-in-8bit.")
