@@ -39,7 +39,7 @@ DEFAULT_PROMPT = (
     "Use lowercase, single-word names when obvious (e.g., '1: delete')."
 )
 
-DEFAULT_MAX_MEMORY = "29GiB"
+DEFAULT_MAX_MEMORY = "31GiB"
 DEFAULT_CPU_MEMORY = "64GiB"
 
 
@@ -47,7 +47,7 @@ DEFAULT_CPU_MEMORY = "64GiB"
 class GenerationConfig:
     model_name: str = "Qwen/Qwen2.5-VL-72B-Instruct"
     trust_remote_code: bool = True
-    dtype: str = "bfloat16"
+    dtype: str = "float16"
     max_new_tokens: int = 256
     temperature: float = 0.1
     top_p: float = 0.9
@@ -55,7 +55,7 @@ class GenerationConfig:
     use_fast_processor: bool = False
     load_in_8bit: bool = False
     load_in_4bit: bool = False
-    use_cache: bool = False
+    use_cache: bool = True
 
 
 def _list_images(images_dir: Optional[Path], image_paths: List[Path]) -> List[Path]:
@@ -222,7 +222,7 @@ def generate_icon_names(
             device_inputs = {}
             for key, value in inputs.items():
                 if torch.is_floating_point(value):
-                    device_inputs[key] = value.to(model.device, dtype=torch_dtype)
+                    device_inputs[key] = value.to(model.device, dtype=torch_dtype, non_blocking=True)
                 else:
                     device_inputs[key] = value.to(model.device)
 
@@ -254,7 +254,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-name", default="Qwen/Qwen2.5-VL-72B-Instruct", help="Model identifier")
     parser.add_argument("--batch-size", type=int, default=1, help="Number of screenshots per generation batch")
     parser.add_argument("--prompt", default=DEFAULT_PROMPT, help="Instruction prompt for the model")
-    parser.add_argument("--max-new-tokens", type=int, default=256)
+    parser.add_argument("--max-new-tokens", type=int, default=16)
     parser.add_argument("--temperature", type=float, default=0.1)
     parser.add_argument("--top-p", type=float, default=0.9)
     parser.add_argument("--dtype", choices=["bfloat16", "float16", "float32"], default="bfloat16")
@@ -263,7 +263,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--load-in-8bit", action="store_true", help="Load model weights in 8-bit (bitsandbytes)")
     parser.add_argument("--load-in-4bit", action="store_true", help="Load model weights in 4-bit (bitsandbytes)")
     parser.add_argument("--use-cache", action="store_true", help="Enable generation cache (uses more memory)")
-    parser.add_argument("--max-edge", type=int, default=896, help="Resize so max(image_w, image_h) <= this value to reduce visual tokens")
+    parser.add_argument("--max-edge", type=int, default=672, help="Resize so max(image_w, image_h) <= this value to reduce visual tokens")
     parser.add_argument("--attn-backend", choices=["mem_efficient", "sdpa", "eager"], default="mem_efficient", help="Attention kernel selection")
     parser.add_argument("--max-memory", default=None, help='Per-GPU memory limit, e.g., "29GiB"')
     parser.add_argument("--offload-dir", type=Path, default=Path(".offload"), help="Folder for CPU/NVMe offload when sharding")
