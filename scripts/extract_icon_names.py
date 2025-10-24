@@ -31,7 +31,7 @@ try:
 except ImportError:  # pragma: no cover
     BitsAndBytesConfig = None  # type: ignore
 
-import xformers
+#import xformers
 
 
 DEFAULT_PROMPT = (
