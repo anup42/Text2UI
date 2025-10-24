@@ -31,6 +31,8 @@ try:
 except ImportError:  # pragma: no cover
     BitsAndBytesConfig = None  # type: ignore
 
+import xformers
+
 
 DEFAULT_PROMPT = (
     "You are an expert UI icon identifier. For the screenshot, each icon is "
@@ -196,7 +198,9 @@ def generate_icon_names(
     model.eval()
     try:
         model.enable_xformers_memory_efficient_attention()
+        print("has xformers hook:", getattr(model, "_use_memory_efficient_attention_xformers", False))
     except Exception:
+        print("no xformers")
         pass
     if hasattr(model, "generation_config"):
         model.generation_config.use_cache = config.use_cache
@@ -286,6 +290,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     print(torch.__version__)
+    print("xformers", xformers.__version__)
 
     if args.load_in_4bit and args.load_in_8bit:
         raise ValueError("Choose only one of --load-in-4bit or --load-in-8bit.")
