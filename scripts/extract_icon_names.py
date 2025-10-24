@@ -33,9 +33,9 @@ except ImportError:  # pragma: no cover
 
 DEFAULT_PROMPT = (
     "You are an expert UI icon identifier. For the screenshot, each icon is "
-    "already surrounded by a box and labeled with a numeric ID. Return a list "
+    "surrounded by a box and on the top left labeled with a numeric ID. Your job is to provide a list "
     "mapping each ID to a concise icon name using the exact format 'ID: name'. "
-    "Use lowercase, single-word names when obvious (e.g., '1: delete')."
+    "Use lowercase, single-word names when obvious (e.g., '1: delete'), make sure to map correct ID."
 )
 
 DEFAULT_MAX_MEMORY = "31GiB"
