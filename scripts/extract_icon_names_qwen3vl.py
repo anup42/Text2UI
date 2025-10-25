@@ -34,10 +34,10 @@ except ImportError:  # pragma: no cover
 
 DEFAULT_PROMPT = (
     "You are an expert UI icon identifier. Every icon in the screenshot already has a bounding box "
-    "with a numeric ID printed on top of it. Produce one line per icon using the exact format 'ID: name'. "
+    "with a numeric ID printed on top left of it. Produce one line per icon using the exact format 'ID: name'. "
     "Copy the numeric ID exactly as shown (do not renumber, skip, merge, or invent IDs) and describe the icon "
-    "with a concise lowercase name (e.g., '1: delete'). When an icon is an app or launcher logo, label it using "
-    "the pattern 'app_icon <app name>' (e.g., '3: app_icon spotify') so the app icon name is preserved. "
+    "with a concise lowercase name (e.g., '1: delete'). When an icon is an app logo, label it using "
+    "the pattern 'app <app name>' (e.g., '3: app spotify') so the app icon name is preserved. "
     "List the lines in ascending order by ID."
 )
 
