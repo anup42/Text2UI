@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Optional
@@ -39,6 +40,9 @@ DEFAULT_PROMPT = (
 )
 
 DEFAULT_CPU_MEMORY = "64GiB"
+DEFAULT_MAX_NEW_TOKENS = 128
+MAX_BATCH_SIZE = 1
+LOW_MEMORY_SAFETY_MARGIN = 2  # GiB we keep free on each GPU
 
 
 @dataclass
@@ -121,7 +125,7 @@ def _auto_max_memory_string() -> Optional[str]:
     except RuntimeError:
         return None
     total_gib = props.total_memory / (1024**3)
-    safe_gib = max(int(total_gib) - 2, 1)
+    safe_gib = max(int(total_gib) - LOW_MEMORY_SAFETY_MARGIN, 1)
     return f"{safe_gib}GiB"
 
 
@@ -138,7 +142,7 @@ def _auto_enable_4bit(config: GenerationConfig) -> None:
         return
     if total_gib <= 32:
         config.load_in_4bit = True
-        print("Auto-enabled 4-bit quantization for GPUs with <=32GiB memory.")
+        print(">> Auto-enabled 4-bit quantization for GPUs with <=32GiB memory.", file=sys.stderr)
 
 
 def _flash_attn_supported() -> bool:
@@ -204,6 +208,17 @@ def generate_icon_names(
 ) -> None:
     _auto_enable_4bit(config)
 
+    if torch.cuda.is_available():
+        print(f">> CUDA devices: {torch.cuda.device_count()}", file=sys.stderr)
+        for idx in range(torch.cuda.device_count()):
+            props = torch.cuda.get_device_properties(idx)
+            print(
+                f">> GPU {idx}: {props.name}, total {props.total_memory / (1024**3):.1f} GiB",
+                file=sys.stderr,
+            )
+    else:
+        print(">> No CUDA devices detected; running on CPU.", file=sys.stderr)
+
     processor = AutoProcessor.from_pretrained(
         config.model_name,
         trust_remote_code=config.trust_remote_code,
@@ -229,15 +244,18 @@ def generate_icon_names(
             gpu_mem = {i: max_memory for i in range(gpu_count)}
             model_kwargs["max_memory"] = gpu_mem
             model_kwargs["max_memory"]["cpu"] = DEFAULT_CPU_MEMORY
+            print(f">> Using max_memory per GPU: {max_memory}", file=sys.stderr)
         if offload_dir is not None:
             offload_dir.mkdir(parents=True, exist_ok=True)
             model_kwargs["offload_folder"] = str(offload_dir)
+            print(f">> Offloading activations to: {offload_dir}", file=sys.stderr)
         if BitsAndBytesConfig is None and quant_config is None:
             model_kwargs.setdefault("max_memory", {})
             model_kwargs["max_memory"].update({"cpu": DEFAULT_CPU_MEMORY})
 
     if quant_config is not None:
         model_kwargs["quantization_config"] = quant_config
+        print(">> 4-bit quantization active.", file=sys.stderr)
     else:
         model_kwargs["torch_dtype"] = torch_dtype
 
@@ -245,17 +263,20 @@ def generate_icon_names(
         config.model_name,
         **model_kwargs,
     )
+    print(f">> Model loaded on device(s): {model.device}", file=sys.stderr)
 
     model.eval()
     if hasattr(model, "generation_config"):
         model.generation_config.use_cache = config.use_cache
+        print(f">> Generation cache enabled: {config.use_cache}", file=sys.stderr)
 
     output_file.parent.mkdir(parents=True, exist_ok=True)
     progress = tqdm(total=len(image_paths), desc="screenshots", unit="img") if not quiet else None
 
     with output_file.open("w", encoding="utf-8") as handle:
-        for start in range(0, len(image_paths), batch_size):
-            batch_paths = image_paths[start : start + batch_size]
+        effective_batch = max(1, min(batch_size, MAX_BATCH_SIZE))
+        for start in range(0, len(image_paths), effective_batch):
+            batch_paths = image_paths[start : start + effective_batch]
             images = _load_images(batch_paths, max_edge)
             messages_batch = [_prepare_messages(prompt, image) for image in images]
 
@@ -281,12 +302,35 @@ def generate_icon_names(
                     device_inputs[key] = value.to(model.device)
 
             with torch.no_grad():
-                generated_ids = model.generate(
-                    **device_inputs,
-                    max_new_tokens=config.max_new_tokens,
-                    temperature=config.temperature,
-                    top_p=config.top_p,
-                )
+                try:
+                    generated_ids = model.generate(
+                        **device_inputs,
+                        max_new_tokens=config.max_new_tokens,
+                        temperature=config.temperature,
+                        top_p=config.top_p,
+                    )
+                except RuntimeError as err:
+                    if "CUDA out of memory" in str(err).lower():
+                        for idx in range(torch.cuda.device_count()):
+                            stats = torch.cuda.memory_stats(idx)
+                            allocated = stats["allocated_bytes.all.current"] / (1024**3)
+                            reserved = stats["reserved_bytes.all.current"] / (1024**3)
+                            print(
+                                f">> OOM on GPU {idx}: allocated {allocated:.2f} GiB, reserved {reserved:.2f} GiB",
+                                file=sys.stderr,
+                            )
+                        print(
+                            ">> Suggestion: lower --max-edge or --max-new-tokens, enable --load-in-4bit, "
+                            "or set --offload-dir to fast storage.",
+                            file=sys.stderr,
+                        )
+                        torch.cuda.empty_cache()
+                        raise RuntimeError(
+                            "CUDA OOM during generation. "
+                            "Consider lowering --max-new-tokens, using --max-edge <smaller>, "
+                            "and ensuring --load-in-4bit is enabled."
+                        ) from err
+                    raise
             input_lengths = device_inputs["attention_mask"].sum(dim=-1).tolist()
 
             gen_only = []
@@ -313,7 +357,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-name", default="Qwen/Qwen3-VL-30B-A3B-Instruct", help="Model identifier")
     parser.add_argument("--batch-size", type=int, default=1, help="Number of screenshots per generation batch")
     parser.add_argument("--prompt", default=DEFAULT_PROMPT, help="Instruction prompt for the model")
-    parser.add_argument("--max-new-tokens", type=int, default=16)
+    parser.add_argument("--max-new-tokens", type=int, default=DEFAULT_MAX_NEW_TOKENS)
     parser.add_argument("--temperature", type=float, default=0.1)
     parser.add_argument("--top-p", type=float, default=0.9)
     parser.add_argument("--dtype", choices=["bfloat16", "float16", "float32"], default="float16")
@@ -330,7 +374,7 @@ def parse_args() -> argparse.Namespace:
         default=attn_default,
         help="Attention kernel selection passed to transformers (flash_attention_2 when supported, otherwise SDPA).",
     )
-    parser.add_argument("--max-memory", default=None, help='Per-GPU memory limit, e.g., "29GiB"')
+    parser.add_argument("--max-memory", default=None, help='Per-GPU memory limit, e.g., "31GiB"')
     parser.add_argument("--offload-dir", type=Path, default=Path(".offload"), help="Folder for CPU/NVMe offload when sharding")
     parser.add_argument("--quiet", action="store_true", help="Suppress progress bar")
     return parser.parse_args()
