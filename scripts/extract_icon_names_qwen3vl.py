@@ -40,8 +40,8 @@ DEFAULT_PROMPT = (
 )
 
 DEFAULT_CPU_MEMORY = "64GiB"
-DEFAULT_MAX_NEW_TOKENS = 64
-DEFAULT_MAX_EDGE = 448
+DEFAULT_MAX_NEW_TOKENS = 48
+DEFAULT_MAX_EDGE = 384
 MAX_BATCH_SIZE = 1
 LOW_MEMORY_SAFETY_MARGIN = 2  # GiB we keep free on each GPU
 
@@ -54,7 +54,7 @@ class GenerationConfig:
     max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS
     temperature: float = 0.1
     top_p: float = 0.9
-    device_map: str = "balanced_low_0"
+    device_map: str = "auto"
     use_fast_processor: bool = False
     load_in_8bit: bool = False
     load_in_4bit: bool = False
@@ -195,6 +195,19 @@ def _build_quant_config(config: GenerationConfig, torch_dtype: torch.dtype):
     return None
 
 
+def _build_max_memory_dict(max_memory: Optional[str]) -> Optional[dict]:
+    if torch.cuda.device_count() == 0:
+        return None
+    total_gib = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+    if max_memory is None:
+        per_gpu = f"{max(int(total_gib) - LOW_MEMORY_SAFETY_MARGIN, 1)}GiB"
+    else:
+        per_gpu = max_memory
+    gpu_mem = {idx: per_gpu for idx in range(torch.cuda.device_count())}
+    gpu_mem["cpu"] = DEFAULT_CPU_MEMORY
+    return gpu_mem
+
+
 def generate_icon_names(
     image_paths: List[Path],
     config: GenerationConfig,
@@ -242,20 +255,15 @@ def generate_icon_names(
         low_cpu_mem_usage=True,
         attn_implementation=attn_impl,
     )
-    if max_memory:
-        gpu_count = torch.cuda.device_count()
-        if gpu_count > 0:
-            gpu_mem = {i: max_memory for i in range(gpu_count)}
-            model_kwargs["max_memory"] = gpu_mem
-            model_kwargs["max_memory"]["cpu"] = DEFAULT_CPU_MEMORY
-            print(f">> Using max_memory per GPU: {max_memory}", file=sys.stderr)
-        if offload_dir is not None:
-            offload_dir.mkdir(parents=True, exist_ok=True)
-            model_kwargs["offload_folder"] = str(offload_dir)
-            print(f">> Offloading activations to: {offload_dir}", file=sys.stderr)
-        if BitsAndBytesConfig is None and quant_config is None:
-            model_kwargs.setdefault("max_memory", {})
-            model_kwargs["max_memory"].update({"cpu": DEFAULT_CPU_MEMORY})
+    max_memory_dict = _build_max_memory_dict(max_memory)
+    if max_memory_dict is not None:
+        model_kwargs["max_memory"] = max_memory_dict
+        print(f">> Using max_memory map: {max_memory_dict}", file=sys.stderr)
+    if offload_dir is None:
+        offload_dir = Path(".offload")
+    offload_dir.mkdir(parents=True, exist_ok=True)
+    model_kwargs["offload_folder"] = str(offload_dir)
+    print(f">> Offloading activations to: {offload_dir}", file=sys.stderr)
 
     if quant_config is not None:
         model_kwargs["quantization_config"] = quant_config
@@ -270,8 +278,8 @@ def generate_icon_names(
             **model_kwargs,
         )
     except RuntimeError as err:
-        if "CUDA out of memory" in str(err).lower():
-            print(">> OOM while loading model weights.", file=sys.stderr)
+        if "cuda out of memory" in str(err).lower():
+            print(">> OOM while loading model weights. Retrying with stronger CPU offload.", file=sys.stderr)
             for idx in range(torch.cuda.device_count()):
                 stats = torch.cuda.memory_stats(idx)
                 allocated = stats["allocated_bytes.all.current"] / (1024**3)
@@ -280,11 +288,22 @@ def generate_icon_names(
                     f">> GPU {idx}: allocated {allocated:.2f} GiB, reserved {reserved:.2f} GiB",
                     file=sys.stderr,
                 )
-            raise RuntimeError(
-                "CUDA OOM during model load. Try lowering --max-memory, enabling --load-in-4bit, "
-                "or offloading with --offload-dir."
-            ) from err
-        raise
+            tighter = _build_max_memory_dict("12GiB")
+            if tighter is not None:
+                model_kwargs["max_memory"] = tighter
+                print(f">> Retrying with max_memory map: {tighter}", file=sys.stderr)
+                torch.cuda.empty_cache()
+                model = AutoModelForImageTextToText.from_pretrained(
+                    config.model_name,
+                    **model_kwargs,
+                )
+            else:
+                raise RuntimeError(
+                    "CUDA OOM during model load. Try lowering --max-memory, enabling --load-in-4bit, "
+                    "or offloading with --offload-dir."
+                ) from err
+        else:
+            raise
     print(f">> Model loaded on device(s): {model.device}", file=sys.stderr)
     if hasattr(model, "hf_device_map"):
         print(f">> hf_device_map: {model.hf_device_map}", file=sys.stderr)
