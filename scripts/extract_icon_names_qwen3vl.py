@@ -43,7 +43,9 @@ DEFAULT_CPU_MEMORY = "64GiB"
 DEFAULT_MAX_NEW_TOKENS = 48
 DEFAULT_MAX_EDGE = 384
 MAX_BATCH_SIZE = 1
-LOW_MEMORY_SAFETY_MARGIN = 2  # GiB we keep free on each GPU
+LOW_MEMORY_SAFETY_MARGIN = 3  # GiB we keep free on each GPU
+MAX_GPU_TARGET_GIB = 14
+FALLBACK_GPU_MEMORY_GIB = 11
 
 
 @dataclass
@@ -195,14 +197,32 @@ def _build_quant_config(config: GenerationConfig, torch_dtype: torch.dtype):
     return None
 
 
+def _parse_gib(value: str) -> float:
+    normalized = value.strip().lower().replace(" ", "")
+    if normalized.endswith("gib"):
+        return float(normalized[:-3])
+    if normalized.endswith("gb"):
+        return float(normalized[:-2])
+    return float(normalized)
+
+
+def _format_gib(value: float) -> str:
+    return f"{int(value)}GiB"
+
+
 def _build_max_memory_dict(max_memory: Optional[str]) -> Optional[dict]:
     if torch.cuda.device_count() == 0:
         return None
     total_gib = torch.cuda.get_device_properties(0).total_memory / (1024**3)
     if max_memory is None:
-        per_gpu = f"{max(int(total_gib) - LOW_MEMORY_SAFETY_MARGIN, 1)}GiB"
+        target = max(int(total_gib) - LOW_MEMORY_SAFETY_MARGIN, 1)
     else:
-        per_gpu = max_memory
+        try:
+            target = int(_parse_gib(max_memory))
+        except ValueError:
+            target = max(int(total_gib) - LOW_MEMORY_SAFETY_MARGIN, 1)
+    target = max(1, min(target, MAX_GPU_TARGET_GIB, int(total_gib) - LOW_MEMORY_SAFETY_MARGIN))
+    per_gpu = _format_gib(target)
     gpu_mem = {idx: per_gpu for idx in range(torch.cuda.device_count())}
     gpu_mem["cpu"] = DEFAULT_CPU_MEMORY
     return gpu_mem
@@ -288,7 +308,7 @@ def generate_icon_names(
                     f">> GPU {idx}: allocated {allocated:.2f} GiB, reserved {reserved:.2f} GiB",
                     file=sys.stderr,
                 )
-            tighter = _build_max_memory_dict("12GiB")
+            tighter = _build_max_memory_dict(_format_gib(FALLBACK_GPU_MEMORY_GIB))
             if tighter is not None:
                 model_kwargs["max_memory"] = tighter
                 print(f">> Retrying with max_memory map: {tighter}", file=sys.stderr)
