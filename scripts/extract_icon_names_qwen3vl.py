@@ -5,7 +5,7 @@ Example (single process across 2× V100 GPUs):
   python scripts/extract_icon_names_qwen3vl.py \
     --images-dir data/screenshots/icons \
     --output-file outputs/icon_labels_qwen3.jsonl \
-    --batch-size 1 --load-in-4bit --max-memory 29GiB
+    --batch-size 1 --load-in-4bit --max-memory 14GiB
 
 Screenshots must already contain bounding boxes + numeric IDs (1..N).
 The model returns lines like "1: delete" for each ID.
@@ -38,7 +38,6 @@ DEFAULT_PROMPT = (
     "Use lowercase, single-word names when obvious (e.g., '1: delete')."
 )
 
-DEFAULT_MAX_MEMORY = "29GiB"
 DEFAULT_CPU_MEMORY = "64GiB"
 
 
@@ -112,6 +111,34 @@ def _resolve_dtype(dtype: str) -> torch.dtype:
     if dtype == "float32":
         return torch.float32
     return torch.bfloat16
+
+
+def _auto_max_memory_string() -> Optional[str]:
+    if not torch.cuda.is_available():
+        return None
+    try:
+        props = torch.cuda.get_device_properties(0)
+    except RuntimeError:
+        return None
+    total_gib = props.total_memory / (1024**3)
+    safe_gib = max(int(total_gib) - 2, 1)
+    return f"{safe_gib}GiB"
+
+
+def _auto_enable_4bit(config: GenerationConfig) -> None:
+    if config.load_in_4bit or config.load_in_8bit:
+        return
+    if BitsAndBytesConfig is None:
+        return
+    if not torch.cuda.is_available():
+        return
+    try:
+        total_gib = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+    except RuntimeError:
+        return
+    if total_gib <= 32:
+        config.load_in_4bit = True
+        print("Auto-enabled 4-bit quantization for GPUs with <=32GiB memory.")
 
 
 def _flash_attn_supported() -> bool:
@@ -324,7 +351,7 @@ def main() -> None:
 
     effective_max_memory = args.max_memory
     if effective_max_memory is None and torch.cuda.device_count() > 0:
-        effective_max_memory = DEFAULT_MAX_MEMORY
+        effective_max_memory = _auto_max_memory_string()
 
     config = GenerationConfig(
         model_name=args.model_name,
@@ -338,6 +365,10 @@ def main() -> None:
         load_in_4bit=args.load_in_4bit,
         use_cache=args.use_cache,
     )
+
+    if BitsAndBytesConfig is None and config.load_in_4bit:
+        raise ImportError("bitsandbytes is required for 4-bit loading. Install with `pip install bitsandbytes`.")
+    _auto_enable_4bit(config)
 
     generate_icon_names(
         image_paths=images,
