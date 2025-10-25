@@ -21,6 +21,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Optional
 
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "max_split_size_mb:256,expandable_segments:True")
+
 import torch
 from PIL import Image
 from tqdm import tqdm
@@ -41,11 +43,11 @@ DEFAULT_PROMPT = (
 
 DEFAULT_CPU_MEMORY = "64GiB"
 DEFAULT_MAX_NEW_TOKENS = 48
-DEFAULT_MAX_EDGE = 384
+DEFAULT_MAX_EDGE = 320
 MAX_BATCH_SIZE = 1
 LOW_MEMORY_SAFETY_MARGIN = 3  # GiB we keep free on each GPU
-MAX_GPU_TARGET_GIB = 14
-FALLBACK_GPU_MEMORY_GIB = 11
+MAX_GPU_TARGET_GIB = 12
+FALLBACK_GPU_MEMORY_GIB = 10
 
 
 @dataclass
