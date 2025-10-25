@@ -4,7 +4,7 @@
 Example (single process across 2× V100 GPUs):
   python scripts/extract_icon_names_qwen3vl.py \
     --images-dir data/screenshots/icons \
-    --output-file outputs/icon_labels_qwen3.jsonl \
+    --output-dir outputs/icon_labels_qwen3 \
     --batch-size 1 --load-in-4bit --max-memory 14GiB
 
 Screenshots must already contain bounding boxes + numeric IDs (1..N).
@@ -216,7 +216,7 @@ def generate_icon_names(
     config: GenerationConfig,
     prompt: str,
     batch_size: int,
-    output_file: Path,
+    output_dir: Path,
     quiet: bool = False,
     max_edge: Optional[int] = None,
     attn_backend: str = "sdpa",
@@ -316,87 +316,89 @@ def generate_icon_names(
         model.generation_config.use_cache = config.use_cache
         print(f">> Generation cache enabled: {config.use_cache}", file=sys.stderr)
 
-    output_file.parent.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
     progress = tqdm(total=len(image_paths), desc="screenshots", unit="img") if not quiet else None
 
-    with output_file.open("w", encoding="utf-8") as handle:
-        effective_batch = max(1, min(batch_size, MAX_BATCH_SIZE))
-        print(f">> Effective batch size: {effective_batch}", file=sys.stderr)
-        for start in range(0, len(image_paths), effective_batch):
-            batch_paths = image_paths[start : start + effective_batch]
-            images = _load_images(batch_paths, max_edge)
-            messages_batch = [_prepare_messages(prompt, image) for image in images]
+    effective_batch = max(1, min(batch_size, MAX_BATCH_SIZE))
+    print(f">> Effective batch size: {effective_batch}", file=sys.stderr)
+    for start in range(0, len(image_paths), effective_batch):
+        batch_paths = image_paths[start : start + effective_batch]
+        images = _load_images(batch_paths, max_edge)
+        messages_batch = [_prepare_messages(prompt, image) for image in images]
 
-            chat_prompts = [
-                processor.apply_chat_template(
-                    messages,
-                    tokenize=False,
-                    add_generation_prompt=True,
-                )
-                for messages in messages_batch
-            ]
-
-            inputs = processor(
-                text=chat_prompts,
-                images=images,
-                return_tensors="pt",
+        chat_prompts = [
+            processor.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
             )
-            device_inputs = {}
-            for key, value in inputs.items():
-                if torch.is_floating_point(value):
-                    device_inputs[key] = value.to(model.device, dtype=torch_dtype, non_blocking=True)
-                else:
-                    device_inputs[key] = value.to(model.device)
+            for messages in messages_batch
+        ]
 
-            with torch.no_grad():
-                try:
-                    #if torch.cuda.is_available():
-                        #free_mem, total_mem = torch.cuda.mem_get_info()
-                        #print(
-                        #    f">> Pre-generation free VRAM: {free_mem / (1024**3):.2f} GiB / {total_mem / (1024**3):.2f} GiB",
-                        #    file=sys.stderr,
-                        #)
-                    generated_ids = model.generate(
-                        **device_inputs,
-                        max_new_tokens=config.max_new_tokens,
-                        temperature=config.temperature,
-                        top_p=config.top_p,
-                    )
-                except RuntimeError as err:
-                    if "CUDA out of memory" in str(err).lower():
-                        for idx in range(torch.cuda.device_count()):
-                            stats = torch.cuda.memory_stats(idx)
-                            allocated = stats["allocated_bytes.all.current"] / (1024**3)
-                            reserved = stats["reserved_bytes.all.current"] / (1024**3)
-                            print(
-                                f">> OOM on GPU {idx}: allocated {allocated:.2f} GiB, reserved {reserved:.2f} GiB",
-                                file=sys.stderr,
-                            )
+        inputs = processor(
+            text=chat_prompts,
+            images=images,
+            return_tensors="pt",
+        )
+        device_inputs = {}
+        for key, value in inputs.items():
+            if torch.is_floating_point(value):
+                device_inputs[key] = value.to(model.device, dtype=torch_dtype, non_blocking=True)
+            else:
+                device_inputs[key] = value.to(model.device)
+
+        with torch.no_grad():
+            try:
+                #if torch.cuda.is_available():
+                    #free_mem, total_mem = torch.cuda.mem_get_info()
+                    #print(
+                    #    f">> Pre-generation free VRAM: {free_mem / (1024**3):.2f} GiB / {total_mem / (1024**3):.2f} GiB",
+                    #    file=sys.stderr,
+                    #)
+                generated_ids = model.generate(
+                    **device_inputs,
+                    max_new_tokens=config.max_new_tokens,
+                    temperature=config.temperature,
+                    top_p=config.top_p,
+                )
+            except RuntimeError as err:
+                if "cuda out of memory" in str(err).lower():
+                    for idx in range(torch.cuda.device_count()):
+                        stats = torch.cuda.memory_stats(idx)
+                        allocated = stats["allocated_bytes.all.current"] / (1024**3)
+                        reserved = stats["reserved_bytes.all.current"] / (1024**3)
                         print(
-                            ">> Suggestion: lower --max-edge or --max-new-tokens, enable --load-in-4bit, "
-                            "or set --offload-dir to fast storage.",
+                            f">> OOM on GPU {idx}: allocated {allocated:.2f} GiB, reserved {reserved:.2f} GiB",
                             file=sys.stderr,
                         )
-                        torch.cuda.empty_cache()
-                        raise RuntimeError(
-                            "CUDA OOM during generation. "
-                            "Consider lowering --max-new-tokens, using --max-edge <smaller>, "
-                            "and ensuring --load-in-4bit is enabled."
-                        ) from err
-                    raise
-            input_lengths = device_inputs["attention_mask"].sum(dim=-1).tolist()
+                    print(
+                        ">> Suggestion: lower --max-edge or --max-new-tokens, enable --load-in-4bit, "
+                        "or set --offload-dir to fast storage.",
+                        file=sys.stderr,
+                    )
+                    torch.cuda.empty_cache()
+                    raise RuntimeError(
+                        "CUDA OOM during generation. "
+                        "Consider lowering --max-new-tokens, using --max-edge <smaller>, "
+                        "and ensuring --load-in-4bit is enabled."
+                    ) from err
+                raise
+        input_lengths = device_inputs["attention_mask"].sum(dim=-1).tolist()
 
-            gen_only = []
-            for seq, in_len in zip(generated_ids, input_lengths):
-                gen_only.append(seq[in_len:])
+        gen_only = []
+        for seq, in_len in zip(generated_ids, input_lengths):
+            gen_only.append(seq[in_len:])
 
-            decoded = processor.batch_decode(gen_only, skip_special_tokens=True)
-            for path, text in zip(batch_paths, decoded):
-                record = {"image": str(path), "icon_names": text.strip()}
-                handle.write(json.dumps(record, ensure_ascii=False))
+        decoded = processor.batch_decode(gen_only, skip_special_tokens=True)
+        for path, text in zip(batch_paths, decoded):
+            record = {"image": str(path), "icon_names": text.strip()}
+            json_name = path.with_suffix(".json").name
+            output_path = output_dir / json_name
+            with output_path.open("w", encoding="utf-8") as handle:
+                json.dump(record, handle, ensure_ascii=False, indent=2)
                 handle.write("\n")
-                if progress is not None:
-                    progress.update(1)
+            if progress is not None:
+                progress.update(1)
 
     if progress is not None:
         progress.close()
@@ -406,7 +408,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Extract icon names from screenshots using Qwen3 VL.")
     parser.add_argument("--images-dir", type=Path, help="Directory containing screenshots", default=None)
     parser.add_argument("--image", type=Path, action="append", default=[], help="Explicit image path (repeatable)")
-    parser.add_argument("--output-file", type=Path, required=True, help="Path to JSONL output")
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        required=True,
+        help="Directory where per-image JSON files will be written",
+    )
     parser.add_argument("--model-name", default="Qwen/Qwen3-VL-30B-A3B-Instruct", help="Model identifier")
     parser.add_argument("--batch-size", type=int, default=1, help="Number of screenshots per generation batch")
     parser.add_argument("--prompt", default=DEFAULT_PROMPT, help="Instruction prompt for the model")
@@ -483,7 +490,7 @@ def main() -> None:
         config=config,
         prompt=args.prompt,
         batch_size=max(1, args.batch_size),
-        output_file=args.output_file.resolve(),
+        output_dir=args.output_dir.resolve(),
         quiet=args.quiet,
         max_edge=args.max_edge,
         attn_backend=args.attn_backend,
