@@ -5,7 +5,7 @@ Example (single node with multiple V100 GPUs):
   python scripts/extract_icon_names_vllm.py \
     --images-dir data/screenshots/icons \
     --output-file outputs/icon_labels.jsonl \
-    --tensor-parallel-size 4 --batch-size 1 --max-edge 672
+    --tensor-parallel-size 4 --batch-size 1 --max-edge 672 --use-xformers
 
 The functionality mirrors :mod:`scripts.extract_icon_names`, but relies on vLLM for
 serving the multimodal model. Screenshots must already contain bounding boxes plus
@@ -18,6 +18,7 @@ import argparse
 import base64
 import io
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Optional
@@ -46,6 +47,7 @@ class VLLMConfig:
     enforce_eager: bool = False
     gpu_memory_utilization: float = 0.9
     max_model_len: Optional[int] = None
+    use_xformers: bool = False
 
 
 def _list_images(images_dir: Optional[Path], image_paths: List[Path]) -> List[Path]:
@@ -116,6 +118,8 @@ def generate_icon_names(
     temperature: float = 0.1,
     top_p: float = 0.9,
 ) -> None:
+    os.environ["VLLM_USE_XFORMERS"] = "1" if config.use_xformers else "0"
+
     llm = LLM(
         model=config.model,
         dtype=config.dtype,
@@ -180,6 +184,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-model-len", type=int, default=None, help="Override max model length for vLLM")
     parser.add_argument("--enforce-eager", action="store_true", help="Force eager execution in vLLM (useful for compatibility)")
     parser.add_argument("--quiet", action="store_true", help="Suppress progress bar")
+    parser.add_argument("--use-xformers", action="store_true", help="Enable xFormers attention kernels in vLLM")
     return parser.parse_args()
 
 
@@ -198,6 +203,7 @@ def main() -> None:
         enforce_eager=args.enforce_eager,
         gpu_memory_utilization=args.gpu_memory_utilization,
         max_model_len=args.max_model_len,
+        use_xformers=args.use_xformers,
     )
 
     generate_icon_names(
