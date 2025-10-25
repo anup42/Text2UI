@@ -304,12 +304,6 @@ def generate_icon_names(
     model_kwargs["offload_folder"] = str(offload_dir)
     print(f">> Offloading activations to: {offload_dir}", file=sys.stderr)
 
-    if quant_config is not None:
-        model_kwargs["quantization_config"] = quant_config
-        print(">> 4-bit quantization active.", file=sys.stderr)
-    else:
-        model_kwargs["torch_dtype"] = torch_dtype
-
     torch.cuda.empty_cache()
     try:
         model = AutoModelForImageTextToText.from_pretrained(
