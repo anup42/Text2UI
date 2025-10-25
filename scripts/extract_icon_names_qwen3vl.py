@@ -202,6 +202,8 @@ def generate_icon_names(
     max_memory: Optional[str] = None,
     offload_dir: Optional[Path] = None,
 ) -> None:
+    _auto_enable_4bit(config)
+
     processor = AutoProcessor.from_pretrained(
         config.model_name,
         trust_remote_code=config.trust_remote_code,
@@ -236,6 +238,7 @@ def generate_icon_names(
 
     if quant_config is not None:
         model_kwargs["quantization_config"] = quant_config
+        model_kwargs["load_in_4bit"] = True
     else:
         model_kwargs["torch_dtype"] = torch_dtype
 
