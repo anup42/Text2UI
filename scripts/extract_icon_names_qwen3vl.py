@@ -49,11 +49,11 @@ class GenerationConfig:
     max_new_tokens: int = 256
     temperature: float = 0.1
     top_p: float = 0.9
-    device_map: str = "auto"
+    device_map: str = "balanced"
     use_fast_processor: bool = False
     load_in_8bit: bool = False
     load_in_4bit: bool = False
-    use_cache: bool = True
+    use_cache: bool = False
 
 
 def _list_images(images_dir: Optional[Path], image_paths: List[Path]) -> List[Path]:
@@ -226,6 +226,7 @@ def generate_icon_names(
         if gpu_count > 0:
             gpu_mem = {i: max_memory for i in range(gpu_count)}
             model_kwargs["max_memory"] = gpu_mem
+            model_kwargs["max_memory"]["cpu"] = DEFAULT_CPU_MEMORY
         if offload_dir is not None:
             offload_dir.mkdir(parents=True, exist_ok=True)
             model_kwargs["offload_folder"] = str(offload_dir)
@@ -319,7 +320,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--load-in-8bit", action="store_true", help="Load model weights in 8-bit (bitsandbytes)")
     parser.add_argument("--load-in-4bit", action="store_true", help="Load model weights in 4-bit (bitsandbytes)")
     parser.add_argument("--use-cache", action="store_true", help="Enable generation cache (uses more memory)")
-    parser.add_argument("--max-edge", type=int, default=672, help="Resize so max(image_w, image_h) <= this value to reduce visual tokens")
+    parser.add_argument("--max-edge", type=int, default=512, help="Resize so max(image_w, image_h) <= this value to reduce visual tokens")
     attn_default = "flash_attention_2" if _flash_attn_supported() else "sdpa"
     parser.add_argument(
         "--attn-backend",
@@ -369,6 +370,9 @@ def main() -> None:
     if BitsAndBytesConfig is None and config.load_in_4bit:
         raise ImportError("bitsandbytes is required for 4-bit loading. Install with `pip install bitsandbytes`.")
     _auto_enable_4bit(config)
+
+    if torch.cuda.device_count() > 1 and config.device_map == "auto":
+        config.device_map = "balanced"
 
     generate_icon_names(
         image_paths=images,
