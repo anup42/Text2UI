@@ -38,7 +38,7 @@ DEFAULT_PROMPT = (
     "Use lowercase, single-word names when obvious (e.g., '1: delete'), make sure to map correct ID."
 )
 
-DEFAULT_MAX_MEMORY = "31.7GiB"
+DEFAULT_MAX_MEMORY = "31GiB"
 DEFAULT_CPU_MEMORY = "64GiB"
 
 
