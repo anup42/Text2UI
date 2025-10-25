@@ -36,8 +36,8 @@ DEFAULT_PROMPT = (
     "You are an expert UI icon identifier. Every icon in the screenshot already has a bounding box "
     "with a numeric ID printed on top left of it. Produce one line per icon using the exact format 'ID: name'. "
     "Copy the numeric ID exactly as shown (do not renumber, skip, merge, or invent IDs) and describe the icon "
-    "with a concise lowercase name (e.g., '1: delete'). When an icon is an app logo, label it using "
-    "the pattern 'app <app name>' (e.g., '3: app spotify') so the app icon name is preserved. "
+    "with a concise lowercase name (e.g., '1: delete'). When an icon is an app launcher logo, label it using "
+    "the pattern 'app_<app name>' (e.g., '3: app_spotify'). "
     "List the lines in ascending order by ID."
 )
 
@@ -349,12 +349,12 @@ def generate_icon_names(
 
             with torch.no_grad():
                 try:
-                    if torch.cuda.is_available():
-                        free_mem, total_mem = torch.cuda.mem_get_info()
-                        print(
-                            f">> Pre-generation free VRAM: {free_mem / (1024**3):.2f} GiB / {total_mem / (1024**3):.2f} GiB",
-                            file=sys.stderr,
-                        )
+                    #if torch.cuda.is_available():
+                        #free_mem, total_mem = torch.cuda.mem_get_info()
+                        #print(
+                        #    f">> Pre-generation free VRAM: {free_mem / (1024**3):.2f} GiB / {total_mem / (1024**3):.2f} GiB",
+                        #    file=sys.stderr,
+                        #)
                     generated_ids = model.generate(
                         **device_inputs,
                         max_new_tokens=config.max_new_tokens,
