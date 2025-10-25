@@ -35,10 +35,11 @@ except ImportError:  # pragma: no cover
     BitsAndBytesConfig = None  # type: ignore
 
 DEFAULT_PROMPT = (
-    "You are an expert UI icon identifier. For the screenshot, each icon is "
-    "already surrounded by a box and labeled with a numeric ID. Return a list "
-    "mapping each ID to a concise icon name using the exact format 'ID: name'. "
-    "Use lowercase, single-word names when obvious (e.g., '1: delete')."
+    "You are an expert UI icon identifier. Every icon in the screenshot already "
+    "has a bounding box with a numeric ID printed on top of it. Produce one line "
+    "per icon using the exact format 'ID: name'. Copy the numeric ID exactly as shown "
+    "(do not renumber, skip, merge, or invent IDs) and describe the icon with a concise "
+    "lowercase name (e.g., '1: delete'). List the lines in ascending order by ID."
 )
 
 DEFAULT_CPU_MEMORY = "64GiB"
