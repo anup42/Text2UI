@@ -62,6 +62,7 @@ class GenerationConfig:
     load_in_8bit: bool = False
     load_in_4bit: bool = False
     use_cache: bool = False
+    quantization: str = "auto"
 
 
 def _list_images(images_dir: Optional[Path], image_paths: List[Path]) -> List[Path]:
@@ -147,6 +148,23 @@ def _auto_enable_4bit(config: GenerationConfig) -> None:
     if total_gib <= 32:
         config.load_in_4bit = True
         print(">> Auto-enabled 4-bit quantization for GPUs with <=32GiB memory.", file=sys.stderr)
+
+
+def _apply_quantization_preferences(config: GenerationConfig, mode: str) -> None:
+    config.quantization = mode
+    if mode == "4bit":
+        config.load_in_4bit = True
+        config.load_in_8bit = False
+        return
+    if mode == "8bit":
+        config.load_in_4bit = False
+        config.load_in_8bit = True
+        return
+    if mode == "off":
+        config.load_in_4bit = False
+        config.load_in_8bit = False
+        return
+    _auto_enable_4bit(config)
 
 
 def _flash_attn_supported() -> bool:
@@ -241,7 +259,7 @@ def generate_icon_names(
     max_memory: Optional[str] = None,
     offload_dir: Optional[Path] = None,
 ) -> None:
-    _auto_enable_4bit(config)
+    _apply_quantization_preferences(config, getattr(config, "quantization", "auto"))
 
     if torch.cuda.is_available():
         print(f">> CUDA devices: {torch.cuda.device_count()}", file=sys.stderr)
@@ -320,8 +338,8 @@ def generate_icon_names(
                 )
             else:
                 raise RuntimeError(
-                    "CUDA OOM during model load. Try lowering --max-memory, enabling --load-in-4bit, "
-                    "or offloading with --offload-dir."
+                    "CUDA OOM during model load. Try lowering --max-memory, enabling --quantization 4bit "
+                    "(or --load-in-4bit), or offloading with --offload-dir."
                 ) from err
         else:
             raise
@@ -391,15 +409,15 @@ def generate_icon_names(
                                 file=sys.stderr,
                             )
                         print(
-                            ">> Suggestion: lower --max-edge or --max-new-tokens, enable --load-in-4bit, "
-                            "or set --offload-dir to fast storage.",
+                            ">> Suggestion: lower --max-edge or --max-new-tokens, enable --quantization 4bit "
+                            "(or --load-in-4bit), or set --offload-dir to fast storage.",
                             file=sys.stderr,
                         )
                         torch.cuda.empty_cache()
                         raise RuntimeError(
                             "CUDA OOM during generation. "
                             "Consider lowering --max-new-tokens, using --max-edge <smaller>, "
-                            "and ensuring --load-in-4bit is enabled."
+                            "and ensuring --quantization 4bit (or --load-in-4bit) is enabled."
                         ) from err
                     raise
             input_lengths = device_inputs["attention_mask"].sum(dim=-1).tolist()
@@ -436,6 +454,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--use-fast-processor", action="store_true", help="Opt-in to fast vision processor")
     parser.add_argument("--load-in-8bit", action="store_true", help="Load model weights in 8-bit (bitsandbytes)")
     parser.add_argument("--load-in-4bit", action="store_true", help="Load model weights in 4-bit (bitsandbytes)")
+    parser.add_argument(
+        "--quantization",
+        choices=["auto", "4bit", "8bit", "off"],
+        default="auto",
+        help=(
+            "Quantization preference: auto enables 4-bit on GPUs with <=32GiB, "
+            "4bit/8bit force that mode, off keeps dense weights."
+        ),
+    )
     parser.add_argument("--use-cache", action="store_true", help="Enable generation cache (uses more memory)")
     parser.add_argument(
         "--max-edge",
@@ -462,6 +489,8 @@ def main() -> None:
 
     if args.load_in_4bit and args.load_in_8bit:
         raise ValueError("Choose only one of --load-in-4bit or --load-in-8bit.")
+    if args.quantization != "auto" and (args.load_in_4bit or args.load_in_8bit):
+        raise ValueError("Use --quantization without --load-in-4bit/--load-in-8bit when requesting manual mode.")
 
     if int(os.environ.get("WORLD_SIZE", "1")) > 1:
         raise RuntimeError("Use a single process; this script shards the model across all GPUs internally.")
@@ -489,9 +518,12 @@ def main() -> None:
         use_cache=args.use_cache,
     )
 
-    if BitsAndBytesConfig is None and config.load_in_4bit:
-        raise ImportError("bitsandbytes is required for 4-bit loading. Install with `pip install bitsandbytes`.")
-    _auto_enable_4bit(config)
+    _apply_quantization_preferences(config, args.quantization)
+
+    if BitsAndBytesConfig is None and (config.load_in_4bit or config.load_in_8bit):
+        raise ImportError(
+            "bitsandbytes is required for low-bit loading. Install with `pip install bitsandbytes`."
+        )
 
     if torch.cuda.device_count() > 1 and config.device_map == "auto":
         config.device_map = "balanced_low_0"
