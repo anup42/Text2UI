@@ -40,7 +40,8 @@ DEFAULT_PROMPT = (
 )
 
 DEFAULT_CPU_MEMORY = "64GiB"
-DEFAULT_MAX_NEW_TOKENS = 128
+DEFAULT_MAX_NEW_TOKENS = 64
+DEFAULT_MAX_EDGE = 448
 MAX_BATCH_SIZE = 1
 LOW_MEMORY_SAFETY_MARGIN = 2  # GiB we keep free on each GPU
 
@@ -50,10 +51,10 @@ class GenerationConfig:
     model_name: str = "Qwen/Qwen3-VL-30B-A3B-Instruct"
     trust_remote_code: bool = True
     dtype: str = "float16"
-    max_new_tokens: int = 256
+    max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS
     temperature: float = 0.1
     top_p: float = 0.9
-    device_map: str = "balanced"
+    device_map: str = "balanced_low_0"
     use_fast_processor: bool = False
     load_in_8bit: bool = False
     load_in_4bit: bool = False
@@ -226,6 +227,9 @@ def generate_icon_names(
     )
     torch_dtype = _resolve_dtype(config.dtype)
     quant_config = _build_quant_config(config, torch_dtype)
+    if quant_config is None and config.load_in_4bit:
+        raise RuntimeError("4-bit quantization requested but quantization_config could not be constructed.")
+    print(f">> Quantization config: {quant_config}", file=sys.stderr)
 
     if attn_backend == "flash_attention_2" and not _flash_attn_supported():
         raise ValueError("flash_attention_2 backend requested but not supported on this GPU (requires Ampere or newer).")
@@ -259,11 +263,31 @@ def generate_icon_names(
     else:
         model_kwargs["torch_dtype"] = torch_dtype
 
-    model = AutoModelForImageTextToText.from_pretrained(
-        config.model_name,
-        **model_kwargs,
-    )
+    torch.cuda.empty_cache()
+    try:
+        model = AutoModelForImageTextToText.from_pretrained(
+            config.model_name,
+            **model_kwargs,
+        )
+    except RuntimeError as err:
+        if "CUDA out of memory" in str(err).lower():
+            print(">> OOM while loading model weights.", file=sys.stderr)
+            for idx in range(torch.cuda.device_count()):
+                stats = torch.cuda.memory_stats(idx)
+                allocated = stats["allocated_bytes.all.current"] / (1024**3)
+                reserved = stats["reserved_bytes.all.current"] / (1024**3)
+                print(
+                    f">> GPU {idx}: allocated {allocated:.2f} GiB, reserved {reserved:.2f} GiB",
+                    file=sys.stderr,
+                )
+            raise RuntimeError(
+                "CUDA OOM during model load. Try lowering --max-memory, enabling --load-in-4bit, "
+                "or offloading with --offload-dir."
+            ) from err
+        raise
     print(f">> Model loaded on device(s): {model.device}", file=sys.stderr)
+    if hasattr(model, "hf_device_map"):
+        print(f">> hf_device_map: {model.hf_device_map}", file=sys.stderr)
 
     model.eval()
     if hasattr(model, "generation_config"):
@@ -275,6 +299,7 @@ def generate_icon_names(
 
     with output_file.open("w", encoding="utf-8") as handle:
         effective_batch = max(1, min(batch_size, MAX_BATCH_SIZE))
+        print(f">> Effective batch size: {effective_batch}", file=sys.stderr)
         for start in range(0, len(image_paths), effective_batch):
             batch_paths = image_paths[start : start + effective_batch]
             images = _load_images(batch_paths, max_edge)
@@ -303,6 +328,12 @@ def generate_icon_names(
 
             with torch.no_grad():
                 try:
+                    if torch.cuda.is_available():
+                        free_mem, total_mem = torch.cuda.mem_get_info()
+                        print(
+                            f">> Pre-generation free VRAM: {free_mem / (1024**3):.2f} GiB / {total_mem / (1024**3):.2f} GiB",
+                            file=sys.stderr,
+                        )
                     generated_ids = model.generate(
                         **device_inputs,
                         max_new_tokens=config.max_new_tokens,
@@ -361,12 +392,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--temperature", type=float, default=0.1)
     parser.add_argument("--top-p", type=float, default=0.9)
     parser.add_argument("--dtype", choices=["bfloat16", "float16", "float32"], default="float16")
-    parser.add_argument("--device-map", default="auto", help="Device map for model loading (e.g., auto, balanced)")
+    parser.add_argument("--device-map", default="auto", help="Device map for model loading (e.g., auto, balanced_low_0)")
     parser.add_argument("--use-fast-processor", action="store_true", help="Opt-in to fast vision processor")
     parser.add_argument("--load-in-8bit", action="store_true", help="Load model weights in 8-bit (bitsandbytes)")
     parser.add_argument("--load-in-4bit", action="store_true", help="Load model weights in 4-bit (bitsandbytes)")
     parser.add_argument("--use-cache", action="store_true", help="Enable generation cache (uses more memory)")
-    parser.add_argument("--max-edge", type=int, default=512, help="Resize so max(image_w, image_h) <= this value to reduce visual tokens")
+    parser.add_argument(
+        "--max-edge",
+        type=int,
+        default=DEFAULT_MAX_EDGE,
+        help="Resize so max(image_w, image_h) <= this value to reduce visual tokens",
+    )
     attn_default = "flash_attention_2" if _flash_attn_supported() else "sdpa"
     parser.add_argument(
         "--attn-backend",
@@ -418,7 +454,7 @@ def main() -> None:
     _auto_enable_4bit(config)
 
     if torch.cuda.device_count() > 1 and config.device_map == "auto":
-        config.device_map = "balanced"
+        config.device_map = "balanced_low_0"
 
     generate_icon_names(
         image_paths=images,
