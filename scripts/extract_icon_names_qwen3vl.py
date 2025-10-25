@@ -238,7 +238,6 @@ def generate_icon_names(
 
     if quant_config is not None:
         model_kwargs["quantization_config"] = quant_config
-        model_kwargs["load_in_4bit"] = True
     else:
         model_kwargs["torch_dtype"] = torch_dtype
 
