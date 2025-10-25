@@ -36,9 +36,10 @@ DEFAULT_PROMPT = (
     "You are an expert UI icon identifier. Every icon in the screenshot already has a bounding box "
     "with a numeric ID printed on top left of it. Produce one line per icon using the exact format 'ID: name'. "
     "Copy the numeric ID exactly as shown (do not renumber, skip, merge, or invent IDs) and describe the icon "
-    "with a concise lowercase name (e.g., '1: delete'). When an icon is an app launcher logo, label it using "
-    "the pattern 'app_<app name>' (e.g., '3: app_spotify'). "
-    "List the lines in ascending order by ID."
+    "with a concise lowercase name (e.g., '1: delete'). Only use the pattern 'app_<app name>' when the marked item is an "
+    "actual app launcher logo such as icons found in a home screen grid or dock. Do not apply the 'app_' prefix to "
+    "system controls, action buttons, or whenever you are unsure; fall back to a descriptive noun instead (e.g., '2: settings', "
+    "'5: home'). List the lines in ascending order by ID."
 )
 
 DEFAULT_CPU_MEMORY = "64GiB"
