@@ -251,13 +251,20 @@ def _draw_overlay(
     except OSError:  # pragma: no cover - font availability varies
         font = ImageFont.load_default()
 
+    def measure(text: str) -> Tuple[int, int]:
+        try:
+            bbox = draw.textbbox((0, 0), text, font=font)
+            return bbox[2] - bbox[0], bbox[3] - bbox[1]
+        except AttributeError:  # pragma: no cover - Pillow < 8
+            return draw.textsize(text, font=font)
+
     for det in detections:
         if det.detection_id is None:
             continue
         left, top, right, bottom = det.bbox
         draw.rectangle([(left, top), (right, bottom)], outline="lime", width=2)
         label = f"{id_prefix}{det.detection_id}"
-        text_w, text_h = draw.textsize(label, font=font)
+        text_w, text_h = measure(label)
         background = [left, max(top - text_h - 4, 0), left + text_w + 4, top]
         draw.rectangle(background, fill="lime")
         draw.text((left + 2, max(top - text_h - 2, 0)), label, fill="black", font=font)
@@ -277,12 +284,19 @@ def _draw_visualization(
     except OSError:  # pragma: no cover
         font = ImageFont.load_default()
 
+    def measure(text: str) -> Tuple[int, int]:
+        try:
+            bbox = draw.textbbox((0, 0), text, font=font)
+            return bbox[2] - bbox[0], bbox[3] - bbox[1]
+        except AttributeError:  # pragma: no cover
+            return draw.textsize(text, font=font)
+
     for det in detections:
         left, top, right, bottom = det.bbox
         draw.rectangle([(left, top), (right, bottom)], outline="cyan", width=2)
         label = labels.get(det.detection_id or -1)
         tag = f"{det.detection_id}: {label}" if label else f"{det.detection_id}"
-        text_w, text_h = draw.textsize(tag, font=font)
+        text_w, text_h = measure(tag)
         draw.rectangle(
             [(left, top), (left + text_w + 6, top + text_h + 6)],
             fill="cyan",
