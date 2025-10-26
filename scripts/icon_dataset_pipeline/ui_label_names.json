@@ -1,0 +1,21 @@
+[
+  "Background",
+  "Image",
+  "Icon",
+  "TEXT_INPUT",
+  "BUTTON",
+  "NAVIGATION_BAR",
+  "SLIDER",
+  "LIST",
+  "DIALOGUE",
+  "QRCODE",
+  "BARCODE",
+  "CONTAINER",
+  "PROGRESS_BAR",
+  "DATETIME",
+  "MAP",
+  "KEYBOARD",
+  "CALENDAR",
+  "WEBVIEW",
+  "GRID"
+]
