@@ -34,7 +34,7 @@ except ImportError:  # pragma: no cover
         ) from exc
 
 
-YOLO_INPUT_DIM = 1024
+YOLO_INPUT_DIM = 640
 LETTERBOX_COLOR = (114, 114, 114)
 
 
