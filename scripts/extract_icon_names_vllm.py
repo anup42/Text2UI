@@ -19,6 +19,7 @@ import base64
 import io
 import json
 import os
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Optional
@@ -120,9 +121,41 @@ def generate_icon_names(
 ) -> None:
     os.environ["VLLM_USE_XFORMERS"] = "1" if config.use_xformers else "0"
 
+    def _resolve_dtype(requested_dtype: str) -> str:
+        if requested_dtype != "auto":
+            return requested_dtype
+        try:
+            import torch
+
+            if not torch.cuda.is_available():
+                return "float16"
+
+            all_support_bfloat16 = True
+            for idx in range(torch.cuda.device_count()):
+                major, _minor = torch.cuda.get_device_capability(idx)
+                if major < 8:
+                    all_support_bfloat16 = False
+                    break
+            if all_support_bfloat16:
+                return "auto"
+
+            warnings.warn(
+                "Detected GPU without bfloat16 support; forcing vLLM dtype=float16. "
+                "Override with --dtype if you have newer hardware."
+            )
+            return "float16"
+        except Exception:
+            warnings.warn(
+                "Could not determine GPU capabilities; forcing vLLM dtype=float16 "
+                "to avoid bfloat16 on unsupported hardware. Override with --dtype to change."
+            )
+            return "float16"
+
+    resolved_dtype = _resolve_dtype(config.dtype)
+
     llm = LLM(
         model=config.model,
-        dtype=config.dtype,
+        dtype=resolved_dtype,
         tensor_parallel_size=config.tensor_parallel_size,
         pipeline_parallel_size=config.pipeline_parallel_size,
         trust_remote_code=config.trust_remote_code,
