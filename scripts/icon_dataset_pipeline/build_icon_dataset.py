@@ -669,7 +669,22 @@ def _draw_visualization(
 
 
 def _assign_detection_ids(detections: List[Detection]) -> None:
-    detections.sort(key=lambda det: (det.bbox[1], det.bbox[0]))
+    detections.sort(key=lambda det: det.bbox[1])
+    ordered: List[Detection] = []
+    i = 0
+    while i < len(detections):
+        current = detections[i]
+        top = current.bbox[1]
+        height = max(1, current.bbox[3] - current.bbox[1])
+        row_threshold = top + max(int(height * 0.5), 20)
+        row: List[Detection] = [current]
+        i += 1
+        while i < len(detections) and detections[i].bbox[1] <= row_threshold:
+            row.append(detections[i])
+            i += 1
+        row.sort(key=lambda det: det.bbox[0])
+        ordered.extend(row)
+    detections[:] = ordered
     for idx, det in enumerate(detections, start=1):
         det.detection_id = idx
 
@@ -689,12 +704,15 @@ def _parse_qwen_output(text: str) -> Dict[int, str]:
         if not line or ":" not in line:
             continue
         raw_key, value = line.split(":", 1)
-        key = raw_key.strip().lower()
-        if key.startswith("id_"):
-            key = key[3:]
-        if not key.isdigit():
+        key = raw_key.strip()
+        lower = key.lower()
+        if lower.startswith("id_"):
+            lower = lower[3:]
+        if lower.endswith("."):
+            lower = lower[:-1]
+        if not lower.isdigit():
             continue
-        icon_id = int(key)
+        icon_id = int(lower)
         labels[icon_id] = value.strip()
     return labels
 
@@ -867,7 +885,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--qwen-dtype", default="float16")
     parser.add_argument("--qwen-batch-size", type=int, default=1)
     parser.add_argument("--qwen-prompt", default=None, help="Override the default Qwen prompt.")
-    parser.add_argument("--qwen-max-new-tokens", type=int, default=16)
+    parser.add_argument("--qwen-max-new-tokens", type=int, default=128)
     parser.add_argument("--qwen-temperature", type=float, default=0.1)
     parser.add_argument("--qwen-top-p", type=float, default=0.9)
     parser.add_argument("--qwen-device-map", default="auto")
