@@ -20,9 +20,9 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class TrainingConfig:
-    epochs: int = 5
-    steps_per_epoch: int = 50
-    batch_size: int = 32
+    epochs: int = 500
+    steps_per_epoch: int = 50000
+    batch_size: int = 1
     input_dim: int = 256
     hidden_dim: int = 64
     learning_rate: float = 1e-3
