@@ -156,8 +156,18 @@ def generate_icon_names(
 
     def _infer_vocab_override(model_id: str) -> Optional[str]:
         """Provide vocab_size override for models missing it (e.g. Qwen3 VL)."""
-        if "qwen" not in model_id.lower():
+        lowered = model_id.lower()
+        if "qwen" not in lowered:
             return None
+
+        static_vocab_map = {
+            "qwen/qwen3-vl-30b-a3b-instruct": 151936,
+            "qwen/qwen2.5-vl-7b-instruct": 151936,
+            "qwen/qwen2.5-vl-3b-instruct": 151936,
+        }
+        if lowered in static_vocab_map:
+            return f"vocab_size={static_vocab_map[lowered]}"
+
         try:
             from huggingface_hub import hf_hub_download
         except Exception:
@@ -205,7 +215,25 @@ def generate_icon_names(
     if resolved_config_overrides:
         llm_kwargs["config_overrides"] = resolved_config_overrides
 
-    llm = LLM(**llm_kwargs)
+    try:
+        llm = LLM(**llm_kwargs)
+    except AttributeError as exc:
+        needs_vocab = (
+            "vocab_size" in str(exc)
+            and "Qwen2VLMoeConfig" in str(exc)
+            and "config_overrides" not in llm_kwargs
+        )
+        if not needs_vocab:
+            raise
+        fallback_override = _infer_vocab_override(config.model)
+        if not fallback_override:
+            warnings.warn(
+                "Failed to resolve vocab_size automatically for Qwen model; "
+                "retrying with vocab_size=151936. Override with --config-overrides if different."
+            )
+            fallback_override = "vocab_size=151936"
+        llm_kwargs["config_overrides"] = fallback_override
+        llm = LLM(**llm_kwargs)
 
     sampling_params = SamplingParams(
         max_tokens=max_new_tokens,
