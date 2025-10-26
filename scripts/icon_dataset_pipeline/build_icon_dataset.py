@@ -233,9 +233,12 @@ def _load_qwen_module() -> object:
     if not target.exists():
         raise FileNotFoundError(f"Unable to load Qwen helper from {target}")
     spec = importlib.util.spec_from_file_location("extract_icon_names_qwen3vl", target)
-    module = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
-    assert spec.loader is not None
-    spec.loader.exec_module(module)  # type: ignore[assignment]
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Failed to create import spec for {target}")
+    module = importlib.util.module_from_spec(spec)
+    loader = spec.loader  # type: ignore[assignment]
+    assert loader is not None
+    loader.exec_module(module)  # type: ignore[arg-type]
     return module
 
 
