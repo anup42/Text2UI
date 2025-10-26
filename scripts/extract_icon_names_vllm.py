@@ -154,6 +154,28 @@ def generate_icon_names(
 
     resolved_dtype = _resolve_dtype(config.dtype)
 
+    def _maybe_patch_config_file(config_path: Path, vocab_size: int) -> None:
+        try:
+            with config_path.open("r", encoding="utf-8") as handle:
+                existing = json.load(handle)
+        except Exception:
+            return
+        if existing.get("vocab_size") == vocab_size:
+            return
+        existing["vocab_size"] = vocab_size
+        tmp_path = config_path.with_suffix(".tmp")
+        try:
+            with tmp_path.open("w", encoding="utf-8") as handle:
+                json.dump(existing, handle, ensure_ascii=False, indent=2)
+                handle.write("\n")
+            tmp_path.replace(config_path)
+        finally:
+            if tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    pass
+
     def _infer_vocab_override(model_id: str) -> Optional[str]:
         """Provide vocab_size override for models missing it (e.g. Qwen3 VL)."""
         lowered = model_id.lower()
@@ -176,8 +198,9 @@ def generate_icon_names(
             config_path = hf_hub_download(model_id, "config.json")
         except Exception:
             return None
+        config_path = Path(config_path)
         try:
-            with open(config_path, "r", encoding="utf-8") as handle:
+            with config_path.open("r", encoding="utf-8") as handle:
                 cfg = json.load(handle)
         except Exception:
             return None
@@ -194,6 +217,10 @@ def generate_icon_names(
             inferred = None
         if inferred is None:
             return None
+        try:
+            _maybe_patch_config_file(config_path, int(inferred))
+        except Exception:
+            pass
         warnings.warn(
             f"Inferred vocab_size={inferred} for model '{model_id}' from text_config; "
             "pass --config-overrides manually if this is incorrect."
@@ -215,25 +242,25 @@ def generate_icon_names(
     if resolved_config_overrides:
         llm_kwargs["config_overrides"] = resolved_config_overrides
 
-    try:
-        llm = LLM(**llm_kwargs)
-    except AttributeError as exc:
-        needs_vocab = (
-            "vocab_size" in str(exc)
-            and "Qwen2VLMoeConfig" in str(exc)
-            and "config_overrides" not in llm_kwargs
-        )
-        if not needs_vocab:
-            raise
-        fallback_override = _infer_vocab_override(config.model)
-        if not fallback_override:
-            warnings.warn(
-                "Failed to resolve vocab_size automatically for Qwen model; "
-                "retrying with vocab_size=151936. Override with --config-overrides if different."
-            )
-            fallback_override = "vocab_size=151936"
-        llm_kwargs["config_overrides"] = fallback_override
-        llm = LLM(**llm_kwargs)
+    attempt = 0
+    while True:
+        try:
+            llm = LLM(**llm_kwargs)
+            break
+        except AttributeError as exc:
+            attempt += 1
+            needs_vocab = "vocab_size" in str(exc) and "Qwen2VLMoeConfig" in str(exc)
+            if not needs_vocab or attempt > 1:
+                raise
+            fallback_override = _infer_vocab_override(config.model)
+            if fallback_override:
+                llm_kwargs["config_overrides"] = fallback_override
+            else:
+                warnings.warn(
+                    "Failed to resolve vocab_size automatically for Qwen model; "
+                    "retrying with vocab_size=151936. Override with --config-overrides if different."
+                )
+                llm_kwargs["config_overrides"] = "vocab_size=151936"
 
     sampling_params = SamplingParams(
         max_tokens=max_new_tokens,
