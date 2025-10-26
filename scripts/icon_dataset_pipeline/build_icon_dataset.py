@@ -17,6 +17,7 @@ import json
 import os
 import sys
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
@@ -46,6 +47,37 @@ from torch.backends.cuda import sdp_kernel
 
 YOLO_INPUT_DIM = 640
 LETTERBOX_COLOR = (114, 114, 114)
+
+_FONT_CANDIDATE_PATHS: List[Path] = [
+    Path(r"C:\Windows\Fonts\arial.ttf"),
+    Path(r"C:\Windows\Fonts\Arial.ttf"),
+    Path(r"C:\Windows\Fonts\ARIAL.TTF"),
+    Path(r"C:\Windows\Fonts\segoeui.ttf"),
+    Path(__file__).resolve().parent / "fonts" / "DejaVuSans.ttf",
+]
+
+_FONT_CANDIDATE_NAMES = [
+    "arial.ttf",
+    "Arial.ttf",
+    "DejaVuSans.ttf",
+    "LiberationSans-Regular.ttf",
+]
+
+
+@lru_cache(maxsize=64)
+def _load_font(size: int) -> ImageFont.ImageFont:
+    for candidate in _FONT_CANDIDATE_PATHS:
+        if candidate.exists():
+            try:
+                return ImageFont.truetype(str(candidate), size)
+            except OSError:
+                continue
+    for name in _FONT_CANDIDATE_NAMES:
+        try:
+            return ImageFont.truetype(name, size)
+        except OSError:
+            continue
+    return ImageFont.load_default()
 
 DEFAULT_PROMPT = (
     "You are an expert UI icon identifier. Every icon in the screenshot already has a bounding box "
@@ -561,17 +593,11 @@ def _draw_overlay(
     id_prefix: str = "id_",
 ) -> None:
     draw = ImageDraw.Draw(image)
-    font_cache: Dict[int, ImageFont.ImageFont] = {}
 
     def select_font(box_height: int) -> ImageFont.ImageFont:
-        baseline = max(48, int(box_height * 0.6))
-        size = min(256, ((baseline + 7) // 8) * 8)
-        if size not in font_cache:
-            try:
-                font_cache[size] = ImageFont.truetype("arial.ttf", size)
-            except OSError:  # pragma: no cover - font availability varies
-                font_cache[size] = ImageFont.load_default()
-        return font_cache[size]
+        baseline = max(64, int(box_height * 0.9))
+        size = min(512, ((baseline + 7) // 8) * 8)
+        return _load_font(size)
 
     def measure(text: str, font: ImageFont.ImageFont) -> Tuple[int, int]:
         try:
@@ -602,17 +628,11 @@ def _draw_visualization(
     output_path: Path,
 ) -> None:
     draw = ImageDraw.Draw(image)
-    font_cache: Dict[int, ImageFont.ImageFont] = {}
 
     def select_font(box_height: int) -> ImageFont.ImageFont:
-        baseline = max(48, int(box_height * 0.6))
-        size = min(256, ((baseline + 7) // 8) * 8)
-        if size not in font_cache:
-            try:
-                font_cache[size] = ImageFont.truetype("arial.ttf", size)
-            except OSError:  # pragma: no cover
-                font_cache[size] = ImageFont.load_default()
-        return font_cache[size]
+        baseline = max(64, int(box_height * 0.9))
+        size = min(512, ((baseline + 7) // 8) * 8)
+        return _load_font(size)
 
     def measure(text: str, font: ImageFont.ImageFont) -> Tuple[int, int]:
         try:
@@ -727,6 +747,7 @@ def run_pipeline(args: argparse.Namespace) -> None:
     for image_path in images:
         with Image.open(image_path) as img:
             detections = detector.detect(img)
+            overlay_image = img.convert("RGB")
         if detection_bar is not None:
             detection_bar.update(1)
         if not detections:
@@ -734,8 +755,6 @@ def run_pipeline(args: argparse.Namespace) -> None:
         _assign_detection_ids(detections)
         detections_by_image[image_path] = detections
 
-        with Image.open(image_path) as base_overlay:
-            overlay_image = base_overlay.convert("RGB")
         overlay_path = overlay_dir / f"{image_path.stem}_overlay{image_path.suffix}"
         _draw_overlay(overlay_image, detections, overlay_path)
         overlay_paths.append(overlay_path)
