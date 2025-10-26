@@ -49,6 +49,7 @@ class VLLMConfig:
     gpu_memory_utilization: float = 0.9
     max_model_len: Optional[int] = None
     use_xformers: bool = False
+    config_overrides: Optional[str] = None
 
 
 def _list_images(images_dir: Optional[Path], image_paths: List[Path]) -> List[Path]:
@@ -153,7 +154,45 @@ def generate_icon_names(
 
     resolved_dtype = _resolve_dtype(config.dtype)
 
-    llm = LLM(
+    def _infer_vocab_override(model_id: str) -> Optional[str]:
+        """Provide vocab_size override for models missing it (e.g. Qwen3 VL)."""
+        if "qwen" not in model_id.lower():
+            return None
+        try:
+            from huggingface_hub import hf_hub_download
+        except Exception:
+            return None
+        try:
+            config_path = hf_hub_download(model_id, "config.json")
+        except Exception:
+            return None
+        try:
+            with open(config_path, "r", encoding="utf-8") as handle:
+                cfg = json.load(handle)
+        except Exception:
+            return None
+        if cfg.get("vocab_size") is not None:
+            return None
+        text_cfg = cfg.get("text_config")
+        if isinstance(text_cfg, dict):
+            inferred = (
+                text_cfg.get("vocab_size")
+                or text_cfg.get("text_vocab_size")
+                or text_cfg.get("tokenizer_vocab_size")
+            )
+        else:
+            inferred = None
+        if inferred is None:
+            return None
+        warnings.warn(
+            f"Inferred vocab_size={inferred} for model '{model_id}' from text_config; "
+            "pass --config-overrides manually if this is incorrect."
+        )
+        return f"vocab_size={int(inferred)}"
+
+    resolved_config_overrides = config.config_overrides or _infer_vocab_override(config.model)
+
+    llm_kwargs = dict(
         model=config.model,
         dtype=resolved_dtype,
         tensor_parallel_size=config.tensor_parallel_size,
@@ -163,6 +202,10 @@ def generate_icon_names(
         gpu_memory_utilization=config.gpu_memory_utilization,
         max_model_len=config.max_model_len,
     )
+    if resolved_config_overrides:
+        llm_kwargs["config_overrides"] = resolved_config_overrides
+
+    llm = LLM(**llm_kwargs)
 
     sampling_params = SamplingParams(
         max_tokens=max_new_tokens,
@@ -218,6 +261,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--enforce-eager", action="store_true", help="Force eager execution in vLLM (useful for compatibility)")
     parser.add_argument("--quiet", action="store_true", help="Suppress progress bar")
     parser.add_argument("--use-xformers", action="store_true", help="Enable xFormers attention kernels in vLLM")
+    parser.add_argument("--config-overrides", default=None, help="String passed to vLLM config_overrides (e.g., 'vocab_size=151936')")
     return parser.parse_args()
 
 
@@ -237,6 +281,7 @@ def main() -> None:
         gpu_memory_utilization=args.gpu_memory_utilization,
         max_model_len=args.max_model_len,
         use_xformers=args.use_xformers,
+        config_overrides=args.config_overrides,
     )
 
     generate_icon_names(
