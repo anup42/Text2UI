@@ -562,7 +562,7 @@ def _draw_overlay(
 ) -> None:
     draw = ImageDraw.Draw(image)
     try:
-        font = ImageFont.truetype("arial.ttf", 20)
+        font = ImageFont.truetype("arial.ttf", 60)
     except OSError:  # pragma: no cover - font availability varies
         font = ImageFont.load_default()
 
@@ -595,7 +595,7 @@ def _draw_visualization(
 ) -> None:
     draw = ImageDraw.Draw(image)
     try:
-        font = ImageFont.truetype("arial.ttf", 20)
+        font = ImageFont.truetype("arial.ttf", 60)
     except OSError:  # pragma: no cover
         font = ImageFont.load_default()
 
