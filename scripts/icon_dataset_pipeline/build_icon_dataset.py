@@ -49,7 +49,7 @@ LETTERBOX_COLOR = (114, 114, 114)
 
 DEFAULT_PROMPT = (
     "You are an expert UI icon identifier. Every icon in the screenshot already has a bounding box "
-    "with a numeric ID printed on top left of it. Produce one line per icon using the exact format 'ID: name'. "
+    "with a numeric ID printed on top left of it in green color. Produce one line per icon using the exact format 'ID: name'. "
     "Copy the numeric ID exactly as shown (do not renumber, skip, merge, or invent IDs) and describe the icon "
     "with a concise lowercase name (e.g., '1: delete'). Only use the pattern 'app_<app name>' when the marked item is an "
     "actual app launcher logo such as icons found in a home screen grid or dock. Do not apply the 'app_' prefix to "
@@ -561,12 +561,19 @@ def _draw_overlay(
     id_prefix: str = "id_",
 ) -> None:
     draw = ImageDraw.Draw(image)
-    try:
-        font = ImageFont.truetype("arial.ttf", 60)
-    except OSError:  # pragma: no cover - font availability varies
-        font = ImageFont.load_default()
+    font_cache: Dict[int, ImageFont.ImageFont] = {}
 
-    def measure(text: str) -> Tuple[int, int]:
+    def select_font(box_height: int) -> ImageFont.ImageFont:
+        baseline = max(48, int(box_height * 0.6))
+        size = min(256, ((baseline + 7) // 8) * 8)
+        if size not in font_cache:
+            try:
+                font_cache[size] = ImageFont.truetype("arial.ttf", size)
+            except OSError:  # pragma: no cover - font availability varies
+                font_cache[size] = ImageFont.load_default()
+        return font_cache[size]
+
+    def measure(text: str, font: ImageFont.ImageFont) -> Tuple[int, int]:
         try:
             bbox = draw.textbbox((0, 0), text, font=font)
             return bbox[2] - bbox[0], bbox[3] - bbox[1]
@@ -579,10 +586,11 @@ def _draw_overlay(
         left, top, right, bottom = det.bbox
         draw.rectangle([(left, top), (right, bottom)], outline="lime", width=2)
         label = f"{id_prefix}{det.detection_id}"
-        text_w, text_h = measure(label)
-        background = [left, max(top - text_h - 4, 0), left + text_w + 4, top]
+        font = select_font(bottom - top)
+        text_w, text_h = measure(label, font)
+        background = [left, max(top - text_h - 6, 0), left + text_w + 8, top]
         draw.rectangle(background, fill="lime")
-        draw.text((left + 2, max(top - text_h - 2, 0)), label, fill="black", font=font)
+        draw.text((left + 4, max(top - text_h - 4, 0)), label, fill="black", font=font)
 
     image.save(output_path)
 
@@ -594,12 +602,19 @@ def _draw_visualization(
     output_path: Path,
 ) -> None:
     draw = ImageDraw.Draw(image)
-    try:
-        font = ImageFont.truetype("arial.ttf", 60)
-    except OSError:  # pragma: no cover
-        font = ImageFont.load_default()
+    font_cache: Dict[int, ImageFont.ImageFont] = {}
 
-    def measure(text: str) -> Tuple[int, int]:
+    def select_font(box_height: int) -> ImageFont.ImageFont:
+        baseline = max(48, int(box_height * 0.6))
+        size = min(256, ((baseline + 7) // 8) * 8)
+        if size not in font_cache:
+            try:
+                font_cache[size] = ImageFont.truetype("arial.ttf", size)
+            except OSError:  # pragma: no cover
+                font_cache[size] = ImageFont.load_default()
+        return font_cache[size]
+
+    def measure(text: str, font: ImageFont.ImageFont) -> Tuple[int, int]:
         try:
             bbox = draw.textbbox((0, 0), text, font=font)
             return bbox[2] - bbox[0], bbox[3] - bbox[1]
@@ -611,12 +626,13 @@ def _draw_visualization(
         draw.rectangle([(left, top), (right, bottom)], outline="cyan", width=2)
         label = labels.get(det.detection_id or -1)
         tag = f"{det.detection_id}: {label}" if label else f"{det.detection_id}"
-        text_w, text_h = measure(tag)
+        font = select_font(bottom - top)
+        text_w, text_h = measure(tag, font)
         draw.rectangle(
-            [(left, top), (left + text_w + 6, top + text_h + 6)],
+            [(left, top), (left + text_w + 8, top + text_h + 8)],
             fill="cyan",
         )
-        draw.text((left + 3, top + 3), tag, fill="black", font=font)
+        draw.text((left + 4, top + 4), tag, fill="black", font=font)
 
     image.save(output_path)
 
