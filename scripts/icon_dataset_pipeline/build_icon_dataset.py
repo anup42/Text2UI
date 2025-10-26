@@ -13,15 +13,18 @@ Steps:
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
+import torch
 from PIL import Image, ImageDraw, ImageFont
+from tqdm import tqdm
+from transformers import AutoModelForImageTextToText, AutoProcessor
 
 try:
     from tflite_runtime.interpreter import Interpreter  # type: ignore
@@ -33,9 +36,47 @@ except ImportError:  # pragma: no cover
             "Neither tflite_runtime nor tensorflow is available. Install one of them to run icon detection."
         ) from exc
 
+try:
+    from transformers import BitsAndBytesConfig  # type: ignore
+except ImportError:  # pragma: no cover
+    BitsAndBytesConfig = None  # type: ignore
+
+
+from torch.backends.cuda import sdp_kernel
 
 YOLO_INPUT_DIM = 640
 LETTERBOX_COLOR = (114, 114, 114)
+
+DEFAULT_PROMPT = (
+    "You are an expert UI icon identifier. Every icon in the screenshot already has a bounding box "
+    "with a numeric ID printed on top left of it. Produce one line per icon using the exact format 'ID: name'. "
+    "Copy the numeric ID exactly as shown (do not renumber, skip, merge, or invent IDs) and describe the icon "
+    "with a concise lowercase name (e.g., '1: delete'). Only use the pattern 'app_<app name>' when the marked item is an "
+    "actual app launcher logo such as icons found in a home screen grid or dock. Do not apply the 'app_' prefix to "
+    "system controls, action buttons, or whenever you are unsure; fall back to a descriptive noun instead (e.g., '2: settings', "
+    "'5: home'). List the lines in ascending order by ID."
+)
+
+DEFAULT_CPU_MEMORY = "64GiB"
+DEFAULT_MAX_NEW_TOKENS = 128
+DEFAULT_MAX_EDGE = 1024
+MAX_BATCH_SIZE = 1
+LOW_MEMORY_SAFETY_MARGIN = 1  # GiB buffer per GPU
+
+
+@dataclass
+class GenerationConfig:
+    model_name: str = "Qwen/Qwen3-VL-30B-A3B-Instruct"
+    trust_remote_code: bool = True
+    dtype: str = "float16"
+    max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS
+    temperature: float = 0.1
+    top_p: float = 0.9
+    device_map: str = "auto"
+    use_fast_processor: bool = False
+    load_in_8bit: bool = False
+    load_in_4bit: bool = False
+    use_cache: bool = False
 
 
 @dataclass
@@ -85,6 +126,292 @@ def _preprocess(image: Image.Image, target_size: int) -> np.ndarray:
     array = np.asarray(resized, dtype=np.float32) / 255.0
     return np.expand_dims(array, axis=0)
 
+
+def _resize_if_needed(img: Image.Image, max_edge: Optional[int]) -> Image.Image:
+    if not max_edge:
+        return img
+    width, height = img.size
+    longest = max(width, height)
+    if longest <= max_edge:
+        return img
+    scale = max_edge / float(longest)
+    new_size = (max(1, int(width * scale)), max(1, int(height * scale)))
+    return img.resize(new_size, Image.BILINEAR)
+
+
+def _load_images(paths: Iterable[Path], max_edge: Optional[int]) -> List[Image.Image]:
+    images: List[Image.Image] = []
+    for path in paths:
+        img = Image.open(path).convert("RGB")
+        images.append(_resize_if_needed(img, max_edge))
+    return images
+
+
+def _prepare_messages(prompt: str, image: Image.Image) -> List[dict]:
+    return [
+        {
+            "role": "user",
+            "content": [
+                {"type": "image", "image": image},
+                {"type": "text", "text": prompt},
+            ],
+        }
+    ]
+
+
+def _resolve_dtype(dtype: str) -> torch.dtype:
+    if dtype == "float16":
+        return torch.float16
+    if dtype == "float32":
+        return torch.float32
+    return torch.bfloat16
+
+
+def _auto_max_memory_string() -> Optional[str]:
+    if not torch.cuda.is_available():
+        return None
+    try:
+        props = torch.cuda.get_device_properties(0)
+    except RuntimeError:
+        return None
+    total_gib = props.total_memory / (1024**3)
+    safe_gib = max(int(total_gib) - LOW_MEMORY_SAFETY_MARGIN, 1)
+    return f"{safe_gib}GiB"
+
+
+def _auto_enable_4bit(config: GenerationConfig) -> None:
+    if config.load_in_4bit or config.load_in_8bit:
+        return
+    if BitsAndBytesConfig is None:
+        return
+    if not torch.cuda.is_available():
+        return
+    total = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+    if total < 24:
+        config.load_in_4bit = True
+
+
+def _flash_attn_supported() -> bool:
+    if not torch.cuda.is_available():
+        return False
+    try:
+        major, _ = torch.cuda.get_device_capability(0)
+    except RuntimeError:
+        return False
+    return major >= 8
+
+
+def _configure_attention(backend: str) -> None:
+    if backend == "flash_attention_2":
+        return
+    try:
+        if backend == "eager":
+            sdp_kernel(enable_flash=True, enable_math=True, enable_mem_efficient=False)
+        elif backend == "sdpa":
+            sdp_kernel(enable_flash=True, enable_math=True, enable_mem_efficient=True)
+        else:  # mem_efficient
+            sdp_kernel(enable_flash=True, enable_math=False, enable_mem_efficient=True)
+    except Exception:
+        pass
+
+
+def _resolve_attn_implementation(backend: str) -> str:
+    if backend == "flash_attention_2":
+        return "flash_attention_2"
+    if backend == "eager":
+        return "eager"
+    if backend == "mem_efficient":
+        return "mem_efficient"
+    return "sdpa"
+
+
+def _build_quant_config(config: GenerationConfig, torch_dtype: torch.dtype):
+    if config.load_in_4bit:
+        if BitsAndBytesConfig is None:
+            raise ImportError("bitsandbytes is required for 4-bit loading. Install with `pip install bitsandbytes`.")
+        return BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch_dtype,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4",
+        )
+    if config.load_in_8bit:
+        if BitsAndBytesConfig is None:
+            raise ImportError("bitsandbytes is required for 8-bit loading. Install with `pip install bitsandbytes`.")
+        return BitsAndBytesConfig(load_in_8bit=True)
+    return None
+
+
+def _build_max_memory_dict(max_memory: Optional[str]) -> Optional[dict]:
+    if torch.cuda.device_count() == 0:
+        return None
+    total_gib = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+    if max_memory is None:
+        per_gpu = f"{max(int(total_gib) - LOW_MEMORY_SAFETY_MARGIN, 1)}GiB"
+    else:
+        per_gpu = max_memory
+    gpu_mem = {idx: per_gpu for idx in range(torch.cuda.device_count())}
+    gpu_mem["cpu"] = DEFAULT_CPU_MEMORY
+    return gpu_mem
+
+
+def generate_icon_names(
+    image_paths: List[Path],
+    config: GenerationConfig,
+    prompt: str,
+    batch_size: int,
+    output_dir: Path,
+    quiet: bool = False,
+    max_edge: Optional[int] = None,
+    attn_backend: str = "sdpa",
+    max_memory: Optional[str] = None,
+    offload_dir: Optional[Path] = None,
+) -> None:
+    _auto_enable_4bit(config)
+
+    if torch.cuda.is_available():
+        print(f">> CUDA devices: {torch.cuda.device_count()}", file=sys.stderr)
+        for idx in range(torch.cuda.device_count()):
+            props = torch.cuda.get_device_properties(idx)
+            print(
+                f">> GPU {idx}: {props.name}, total {props.total_memory / (1024**3):.1f} GiB",
+                file=sys.stderr,
+            )
+    else:
+        print(">> No CUDA devices detected; running on CPU.", file=sys.stderr)
+
+    processor = AutoProcessor.from_pretrained(
+        config.model_name,
+        trust_remote_code=config.trust_remote_code,
+        use_fast=config.use_fast_processor,
+    )
+    torch_dtype = _resolve_dtype(config.dtype)
+    quant_config = _build_quant_config(config, torch_dtype)
+    if quant_config is None and config.load_in_4bit:
+        raise RuntimeError("4-bit quantization requested but quantization_config could not be constructed.")
+    print(f">> Quantization config: {quant_config}", file=sys.stderr)
+
+    if attn_backend == "flash_attention_2" and not _flash_attn_supported():
+        raise ValueError("flash_attention_2 backend requested but not supported on this GPU (requires Ampere or newer).")
+
+    attn_impl = _resolve_attn_implementation(attn_backend)
+
+    model_kwargs = dict(
+        trust_remote_code=config.trust_remote_code,
+        device_map=config.device_map,
+        low_cpu_mem_usage=True,
+        attn_implementation=attn_impl,
+    )
+    max_memory_dict = _build_max_memory_dict(max_memory)
+    if max_memory_dict is not None:
+        model_kwargs["max_memory"] = max_memory_dict
+        print(f">> Using max_memory map: {max_memory_dict}", file=sys.stderr)
+    if offload_dir is None:
+        offload_dir = Path(".offload")
+    offload_dir.mkdir(parents=True, exist_ok=True)
+    model_kwargs["offload_folder"] = str(offload_dir)
+    print(f">> Offloading activations to: {offload_dir}", file=sys.stderr)
+
+    if quant_config is not None:
+        model_kwargs["quantization_config"] = quant_config
+        print(">> 4-bit/8-bit quantization active.", file=sys.stderr)
+    else:
+        model_kwargs["torch_dtype"] = torch_dtype
+
+    torch.cuda.empty_cache()
+    model = AutoModelForImageTextToText.from_pretrained(
+        config.model_name,
+        **model_kwargs,
+    )
+    print(f">> Model loaded on device(s): {model.device}", file=sys.stderr)
+    if hasattr(model, "hf_device_map"):
+        print(f">> hf_device_map: {model.hf_device_map}", file=sys.stderr)
+
+    model.eval()
+    if hasattr(model, "generation_config"):
+        model.generation_config.use_cache = config.use_cache
+        print(f">> Generation cache enabled: {config.use_cache}", file=sys.stderr)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    progress = tqdm(total=len(image_paths), desc="screenshots", unit="img") if not quiet else None
+
+    effective_batch = max(1, min(batch_size, MAX_BATCH_SIZE))
+    print(f">> Effective batch size: {effective_batch}", file=sys.stderr)
+
+    for start in range(0, len(image_paths), effective_batch):
+        batch_paths = image_paths[start : start + effective_batch]
+        images = _load_images(batch_paths, max_edge)
+        messages_batch = [_prepare_messages(prompt, image) for image in images]
+
+        chat_prompts = [
+            processor.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+            for messages in messages_batch
+        ]
+
+        inputs = processor(
+            text=chat_prompts,
+            images=images,
+            return_tensors="pt",
+        )
+        device_inputs = {}
+        for key, value in inputs.items():
+            if torch.is_floating_point(value):
+                device_inputs[key] = value.to(model.device, dtype=torch_dtype, non_blocking=True)
+            else:
+                device_inputs[key] = value.to(model.device)
+
+        with torch.no_grad():
+            try:
+                generated_ids = model.generate(
+                    **device_inputs,
+                    max_new_tokens=config.max_new_tokens,
+                    temperature=config.temperature,
+                    top_p=config.top_p,
+                )
+            except RuntimeError as err:
+                if "cuda out of memory" in str(err).lower():
+                    for idx in range(torch.cuda.device_count()):
+                        stats = torch.cuda.memory_stats(idx)
+                        allocated = stats["allocated_bytes.all.current"] / (1024**3)
+                        reserved = stats["reserved_bytes.all.current"] / (1024**3)
+                        print(
+                            f">> OOM on GPU {idx}: allocated {allocated:.2f} GiB, reserved {reserved:.2f} GiB",
+                            file=sys.stderr,
+                        )
+                    print(
+                        ">> Suggestion: lower --max-edge or --max-new-tokens, enable --load-in-4bit, "
+                        "or set --offload-dir to fast storage.",
+                        file=sys.stderr,
+                    )
+                    torch.cuda.empty_cache()
+                    raise RuntimeError(
+                        "CUDA OOM during generation. "
+                        "Consider lowering --max-new-tokens, using --max-edge <smaller>, "
+                        "and ensuring --load-in-4bit is enabled."
+                    ) from err
+                raise
+
+        input_lengths = device_inputs["attention_mask"].sum(dim=-1).tolist()
+        gen_only = []
+        for seq, in_len in zip(generated_ids, input_lengths):
+            gen_only.append(seq[in_len:])
+
+        decoded = processor.batch_decode(gen_only, skip_special_tokens=True)
+        for path, text in zip(batch_paths, decoded):
+            record = {"image": str(path), "icon_names": text.strip()}
+            output_path = output_dir / path.with_suffix(".json").name
+            with output_path.open("w", encoding="utf-8") as handle:
+                json.dump(record, handle, ensure_ascii=False, indent=2)
+                handle.write("\n")
+            if progress is not None:
+                progress.update(1)
+
+    if progress is not None:
+        progress.close()
 
 def _box_iou(a: np.ndarray, b: np.ndarray) -> float:
     x_left = max(a[0], b[0])
@@ -225,21 +552,6 @@ class YoloIconDetector:
             int(round(right_px)),
             int(round(bottom_px)),
         )
-
-
-def _load_qwen_module() -> object:
-    scripts_dir = Path(__file__).resolve().parent.parent
-    target = scripts_dir / "extract_icon_names_qwen3vl.py"
-    if not target.exists():
-        raise FileNotFoundError(f"Unable to load Qwen helper from {target}")
-    spec = importlib.util.spec_from_file_location("extract_icon_names_qwen3vl", target)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Failed to create import spec for {target}")
-    module = importlib.util.module_from_spec(spec)
-    loader = spec.loader  # type: ignore[assignment]
-    assert loader is not None
-    loader.exec_module(module)  # type: ignore[arg-type]
-    return module
 
 
 def _draw_overlay(
@@ -411,10 +723,9 @@ def run_pipeline(args: argparse.Namespace) -> None:
         print("No icons detected across input images.", file=sys.stderr)
         return
 
-    qwen_module = _load_qwen_module()
-    qwen_module._configure_attention(args.qwen_attn_backend)  # type: ignore[attr-defined]
+    _configure_attention(args.qwen_attn_backend)
 
-    config = qwen_module.GenerationConfig(  # type: ignore[attr-defined]
+    qwen_config = GenerationConfig(
         model_name=args.qwen_model,
         dtype=args.qwen_dtype,
         max_new_tokens=args.qwen_max_new_tokens,
@@ -427,16 +738,18 @@ def run_pipeline(args: argparse.Namespace) -> None:
         use_cache=args.qwen_use_cache,
     )
 
-    qwen_module.generate_icon_names(  # type: ignore[attr-defined]
-        image_paths=[Path(p) for p in overlay_paths],
-        config=config,
-        prompt=args.qwen_prompt or qwen_module.DEFAULT_PROMPT,  # type: ignore[attr-defined]
-        batch_size=args.qwen_batch_size,
+    max_memory_override = args.qwen_max_memory or _auto_max_memory_string()
+
+    generate_icon_names(
+        image_paths=overlay_paths,
+        config=qwen_config,
+        prompt=args.qwen_prompt or DEFAULT_PROMPT,
+        batch_size=max(1, args.qwen_batch_size),
         output_dir=qwen_output_dir,
         quiet=args.quiet,
         max_edge=args.qwen_max_edge,
         attn_backend=args.qwen_attn_backend,
-        max_memory=args.qwen_max_memory,
+        max_memory=max_memory_override,
         offload_dir=Path(args.qwen_offload_dir) if args.qwen_offload_dir else None,
     )
 
