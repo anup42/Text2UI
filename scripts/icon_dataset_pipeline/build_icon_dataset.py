@@ -47,25 +47,34 @@ from torch.backends.cuda import sdp_kernel
 
 YOLO_INPUT_DIM = 640
 LETTERBOX_COLOR = (114, 114, 114)
+TOP_BAR_RATIO = 0.04  # Ignore detections within the top N% of the image height
 
+FONT_DIR = Path(__file__).resolve().parent / "fonts"
+FONT_DIR.mkdir(parents=True, exist_ok=True)
+_LOCAL_FONT = FONT_DIR / "DejaVuSans.ttf"
 _FONT_CANDIDATE_PATHS: List[Path] = [
-    Path(r"C:\Windows\Fonts\arial.ttf"),
-    Path(r"C:\Windows\Fonts\Arial.ttf"),
-    Path(r"C:\Windows\Fonts\ARIAL.TTF"),
-    Path(r"C:\Windows\Fonts\segoeui.ttf"),
-    Path(__file__).resolve().parent / "fonts" / "DejaVuSans.ttf",
+    _LOCAL_FONT,
+    Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+    Path("/usr/share/fonts/dejavu/DejaVuSans.ttf"),
+    Path("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"),
+    Path("/Library/Fonts/Arial.ttf"),
+    Path("/Library/Fonts/Helvetica.ttf"),
 ]
 
 _FONT_CANDIDATE_NAMES = [
-    "arial.ttf",
-    "Arial.ttf",
     "DejaVuSans.ttf",
     "LiberationSans-Regular.ttf",
+    "Arial.ttf",
+    "Helvetica.ttf",
 ]
 
 
 @lru_cache(maxsize=64)
 def _load_font(size: int) -> ImageFont.ImageFont:
+    if not _LOCAL_FONT.exists():
+        raise FileNotFoundError(
+            f"Local font not found at {_LOCAL_FONT}. Ensure DejaVuSans.ttf is present in the fonts directory."
+        )
     for candidate in _FONT_CANDIDATE_PATHS:
         if candidate.exists():
             try:
@@ -81,7 +90,7 @@ def _load_font(size: int) -> ImageFont.ImageFont:
 
 DEFAULT_PROMPT = (
     "You are an expert UI icon identifier. Every icon in the screenshot already has a bounding box "
-    "with a numeric ID printed on top left of it in green color. Produce one line per icon using the exact format 'ID: name'. "
+    "with a numeric ID e.g. id_1 printed on top left of it in green color. Produce one line per icon using the exact format 'ID: name'. "
     "Copy the numeric ID exactly as shown (do not renumber, skip, merge, or invent IDs) and describe the icon "
     "with a concise lowercase name (e.g., '1: delete'). Only use the pattern 'app_<app name>' when the marked item is an "
     "actual app launcher logo such as icons found in a home screen grid or dock. Do not apply the 'app_' prefix to "
@@ -595,8 +604,8 @@ def _draw_overlay(
     draw = ImageDraw.Draw(image)
 
     def select_font(box_height: int) -> ImageFont.ImageFont:
-        baseline = max(64, int(box_height * 0.9))
-        size = min(512, ((baseline + 7) // 8) * 8)
+        baseline = max(128, int(max(box_height, 1) * 1.5))
+        size = min(640, ((baseline + 7) // 8) * 8)
         return _load_font(size)
 
     def measure(text: str, font: ImageFont.ImageFont) -> Tuple[int, int]:
@@ -630,8 +639,8 @@ def _draw_visualization(
     draw = ImageDraw.Draw(image)
 
     def select_font(box_height: int) -> ImageFont.ImageFont:
-        baseline = max(64, int(box_height * 0.9))
-        size = min(512, ((baseline + 7) // 8) * 8)
+        baseline = max(128, int(max(box_height, 1) * 1.5))
+        size = min(640, ((baseline + 7) // 8) * 8)
         return _load_font(size)
 
     def measure(text: str, font: ImageFont.ImageFont) -> Tuple[int, int]:
@@ -747,6 +756,8 @@ def run_pipeline(args: argparse.Namespace) -> None:
     for image_path in images:
         with Image.open(image_path) as img:
             detections = detector.detect(img)
+            cutoff = int(img.height * TOP_BAR_RATIO)
+            detections = [det for det in detections if det.bbox[1] >= cutoff]
             overlay_image = img.convert("RGB")
         if detection_bar is not None:
             detection_bar.update(1)
