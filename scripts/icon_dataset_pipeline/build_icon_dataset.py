@@ -51,9 +51,10 @@ TOP_BAR_RATIO = 0.04  # Ignore detections within the top N% of the image height
 
 FONT_DIR = Path(__file__).resolve().parent / "fonts"
 FONT_DIR.mkdir(parents=True, exist_ok=True)
-_LOCAL_FONT = FONT_DIR / "DejaVuSans.ttf"
+LOCAL_FONT = FONT_DIR / "NotoSans-Regular.ttf"
 _FONT_CANDIDATE_PATHS: List[Path] = [
-    _LOCAL_FONT,
+    LOCAL_FONT,
+    Path("/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf"),
     Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
     Path("/usr/share/fonts/dejavu/DejaVuSans.ttf"),
     Path("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"),
@@ -62,6 +63,7 @@ _FONT_CANDIDATE_PATHS: List[Path] = [
 ]
 
 _FONT_CANDIDATE_NAMES = [
+    "NotoSans-Regular.ttf",
     "DejaVuSans.ttf",
     "LiberationSans-Regular.ttf",
     "Arial.ttf",
@@ -71,9 +73,9 @@ _FONT_CANDIDATE_NAMES = [
 
 @lru_cache(maxsize=64)
 def _load_font(size: int) -> ImageFont.ImageFont:
-    if not _LOCAL_FONT.exists():
+    if not LOCAL_FONT.exists():
         raise FileNotFoundError(
-            f"Local font not found at {_LOCAL_FONT}. Ensure DejaVuSans.ttf is present in the fonts directory."
+            f"Local font not found at {LOCAL_FONT}. Ensure the bundled font is present in the fonts directory."
         )
     for candidate in _FONT_CANDIDATE_PATHS:
         if candidate.exists():
