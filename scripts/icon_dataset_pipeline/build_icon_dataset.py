@@ -706,18 +706,26 @@ def run_pipeline(args: argparse.Namespace) -> None:
     detections_by_image: Dict[Path, List[Detection]] = {}
     overlay_paths: List[Path] = []
 
+    detection_bar = None if args.quiet else tqdm(total=len(images), desc="detect", unit="img")
+
     for image_path in images:
         with Image.open(image_path) as img:
             detections = detector.detect(img)
-            if not detections:
-                continue
-            _assign_detection_ids(detections)
-            detections_by_image[image_path] = detections
+        if detection_bar is not None:
+            detection_bar.update(1)
+        if not detections:
+            continue
+        _assign_detection_ids(detections)
+        detections_by_image[image_path] = detections
 
-            overlay_image = img.copy()
-            overlay_path = overlay_dir / f"{image_path.stem}_overlay{image_path.suffix}"
-            _draw_overlay(overlay_image, detections, overlay_path)
-            overlay_paths.append(overlay_path)
+        with Image.open(image_path) as base_overlay:
+            overlay_image = base_overlay.convert("RGB")
+        overlay_path = overlay_dir / f"{image_path.stem}_overlay{image_path.suffix}"
+        _draw_overlay(overlay_image, detections, overlay_path)
+        overlay_paths.append(overlay_path)
+
+    if detection_bar is not None:
+        detection_bar.close()
 
     if not detections_by_image:
         print("No icons detected across input images.", file=sys.stderr)
@@ -759,6 +767,8 @@ def run_pipeline(args: argparse.Namespace) -> None:
         existing = [line.strip() for line in classes_path.read_text(encoding="utf-8").splitlines() if line.strip()]
         label_map = {name: idx for idx, name in enumerate(existing)}
 
+    label_bar = None if args.quiet else tqdm(total=len(detections_by_image), desc="labels", unit="img")
+
     for image_path, detections in detections_by_image.items():
         overlay_path = overlay_dir / f"{image_path.stem}_overlay{image_path.suffix}"
         qwen_json = qwen_output_dir / f"{overlay_path.stem}.json"
@@ -775,6 +785,11 @@ def run_pipeline(args: argparse.Namespace) -> None:
                 viz_image = img.copy()
                 viz_labels = {det_id: id_to_label.get(det_id, "") for det_id in id_to_label}
                 _draw_visualization(viz_image, detections, viz_labels, viz_dir / f"{image_path.stem}_viz{image_path.suffix}")
+        if label_bar is not None:
+            label_bar.update(1)
+
+    if label_bar is not None:
+        label_bar.close()
 
     if label_map:
         ordered = sorted(label_map.items(), key=lambda item: item[1])
