@@ -94,18 +94,17 @@ def _load_font(size: int) -> ImageFont.ImageFont:
 
 DEFAULT_PROMPT = (
     "You are an expert UI icon identifier. Every icon in the screenshot already has a bounding box "
-    "with a numeric ID e.g. id_1 printed on top left of it in green color. Produce one line per icon using the exact format 'ID: name'. "
+    "with a numeric ID e.g. id_1 printed on top of it in green color. Produce one line per icon using the exact format 'ID: name'. "
     "Copy the numeric ID exactly as shown (do not renumber, skip, merge, or invent IDs) and describe the icon "
     "with a concise lowercase name (e.g., '1: delete'). Only use the pattern 'app_<app name>' when the marked item is an "
     "actual app launcher logo such as icons found in a home screen grid or dock. Do not apply the 'app_' prefix to "
     "system controls, action buttons, or whenever you are unsure; fall back to a descriptive noun instead (e.g., '2: settings', "
-    "'5: home'). List the lines in ascending order by ID."
+    "'5: home'). List the lines in ascending order by ID separated by space."
 )
 
 DEFAULT_CPU_MEMORY = "64GiB"
 DEFAULT_MAX_NEW_TOKENS = 128
 DEFAULT_MAX_EDGE = 1024
-MAX_BATCH_SIZE = 1
 LOW_MEMORY_SAFETY_MARGIN = 1  # GiB buffer per GPU
 
 
@@ -380,7 +379,7 @@ def generate_icon_names(
     output_dir.mkdir(parents=True, exist_ok=True)
     progress = tqdm(total=len(image_paths), desc="screenshots", unit="img") if not quiet else None
 
-    effective_batch = max(1, min(batch_size, MAX_BATCH_SIZE))
+    effective_batch = max(1, batch_size)
     print(f">> Effective batch size: {effective_batch}", file=sys.stderr)
 
     results: Dict[Path, str] = {}
