@@ -49,7 +49,7 @@ from torch.backends.cuda import sdp_kernel
 YOLO_INPUT_DIM = 640
 LETTERBOX_COLOR = (114, 114, 114)
 TOP_BAR_RATIO = 0.04  # Ignore detections within the top N% of the image height
-BOX_GROWTH_RATIO = 0.12  # Expand detected icon boxes by this fraction
+BOX_GROWTH_RATIO = 0.20  # Expand detected icon boxes by this fraction
 
 FONT_DIR = Path(__file__).resolve().parent / "fonts"
 FONT_DIR.mkdir(parents=True, exist_ok=True)
