@@ -405,6 +405,7 @@ def generate_icon_names(
             inputs = processor(
                 text=chat_prompts,
                 images=images,
+                padding=True,
                 return_tensors="pt",
             )
             device_inputs = {}
