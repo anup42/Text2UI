@@ -610,16 +610,17 @@ def _draw_overlay(
     draw = ImageDraw.Draw(image)
 
     def select_font(box_height: int) -> ImageFont.ImageFont:
-        baseline = max(16, int(max(box_height, 1) * 0.2))
-        size = min(64, ((baseline + 7) // 8) * 8)
+        baseline = max(24, int(max(box_height, 1) * 0.2))
+        size = min(80, ((baseline + 7) // 8) * 8)
         return _load_font(size)
 
-    def measure(text: str, font: ImageFont.ImageFont) -> Tuple[int, int]:
+    def measure(text: str, font: ImageFont.ImageFont) -> Tuple[int, int, int]:
         try:
             bbox = draw.textbbox((0, 0), text, font=font)
-            return bbox[2] - bbox[0], bbox[3] - bbox[1]
+            return bbox[2] - bbox[0], bbox[3] - bbox[1], bbox[1]
         except AttributeError:  # pragma: no cover - Pillow < 8
-            return draw.textsize(text, font=font)
+            w, h = draw.textsize(text, font=font)
+            return w, h, 0
 
     for det in detections:
         if det.detection_id is None:
@@ -628,7 +629,7 @@ def _draw_overlay(
         draw.rectangle([(left, top), (right, bottom)], outline="lime", width=2)
         label = f"{id_prefix}{det.detection_id}"
         font = select_font(bottom - top)
-        text_w, text_h = measure(label, font)
+        text_w, text_h, offset_y = measure(label, font)
         padding = 6
         bg_top = max(top - text_h - padding * 2, 0)
         bg_bottom = top
@@ -636,8 +637,8 @@ def _draw_overlay(
         bg_right = left + text_w + padding * 2
         draw.rectangle([(bg_left, bg_top), (bg_right, bg_bottom)], fill="lime")
         available_height = bg_bottom - bg_top
-        text_y = bg_top + (available_height - text_h) / 2
-        text_y = max(bg_top, min(text_y, bg_bottom - text_h))
+        text_y = bg_top + (available_height - text_h) / 2 - offset_y
+        text_y = max(bg_top - offset_y, min(text_y, bg_bottom - text_h - offset_y))
         draw.text((bg_left + padding, text_y), label, fill="black", font=font)
 
     image.save(output_path)
@@ -652,16 +653,17 @@ def _draw_visualization(
     draw = ImageDraw.Draw(image)
 
     def select_font(box_height: int) -> ImageFont.ImageFont:
-        baseline = max(16, int(max(box_height, 1) * 0.2))
-        size = min(64, ((baseline + 7) // 8) * 8)
+        baseline = max(24, int(max(box_height, 1) * 0.2))
+        size = min(80, ((baseline + 7) // 8) * 8)
         return _load_font(size)
 
-    def measure(text: str, font: ImageFont.ImageFont) -> Tuple[int, int]:
+    def measure(text: str, font: ImageFont.ImageFont) -> Tuple[int, int, int]:
         try:
             bbox = draw.textbbox((0, 0), text, font=font)
-            return bbox[2] - bbox[0], bbox[3] - bbox[1]
+            return bbox[2] - bbox[0], bbox[3] - bbox[1], bbox[1]
         except AttributeError:  # pragma: no cover
-            return draw.textsize(text, font=font)
+            w, h = draw.textsize(text, font=font)
+            return w, h, 0
 
     for det in detections:
         left, top, right, bottom = det.bbox
@@ -669,7 +671,7 @@ def _draw_visualization(
         label = labels.get(det.detection_id or -1)
         tag = f"{det.detection_id}: {label}" if label else f"{det.detection_id}"
         font = select_font(bottom - top)
-        text_w, text_h = measure(tag, font)
+        text_w, text_h, offset_y = measure(tag, font)
         padding = 6
         bg_left = left
         bg_top = top
@@ -677,8 +679,8 @@ def _draw_visualization(
         bg_bottom = top + text_h + padding * 2
         draw.rectangle([(bg_left, bg_top), (bg_right, bg_bottom)], fill="cyan")
         available_height = bg_bottom - bg_top
-        text_y = bg_top + (available_height - text_h) / 2
-        text_y = max(bg_top, min(text_y, bg_bottom - text_h))
+        text_y = bg_top + (available_height - text_h) / 2 - offset_y
+        text_y = max(bg_top - offset_y, min(text_y, bg_bottom - text_h - offset_y))
         draw.text((bg_left + padding, text_y), tag, fill="black", font=font)
 
     image.save(output_path)
