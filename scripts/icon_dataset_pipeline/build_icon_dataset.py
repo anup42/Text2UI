@@ -330,6 +330,10 @@ def generate_icon_names(
         trust_remote_code=config.trust_remote_code,
         use_fast=config.use_fast_processor,
     )
+    if hasattr(processor, "tokenizer") and processor.tokenizer is not None:
+        processor.tokenizer.padding_side = "left"
+        if processor.tokenizer.pad_token is None and hasattr(processor.tokenizer, "eos_token"):
+            processor.tokenizer.pad_token = processor.tokenizer.eos_token
     torch_dtype = _resolve_dtype(config.dtype)
     quant_config = _build_quant_config(config, torch_dtype)
     if quant_config is None and config.load_in_4bit:
