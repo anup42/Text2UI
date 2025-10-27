@@ -610,8 +610,8 @@ def _draw_overlay(
     draw = ImageDraw.Draw(image)
 
     def select_font(box_height: int) -> ImageFont.ImageFont:
-        baseline = max(24, int(max(box_height, 1) * 0.4))
-        size = min(96, ((baseline + 7) // 8) * 8)
+        baseline = max(16, int(max(box_height, 1) * 0.2))
+        size = min(64, ((baseline + 7) // 8) * 8)
         return _load_font(size)
 
     def measure(text: str, font: ImageFont.ImageFont) -> Tuple[int, int]:
@@ -629,14 +629,16 @@ def _draw_overlay(
         label = f"{id_prefix}{det.detection_id}"
         font = select_font(bottom - top)
         text_w, text_h = measure(label, font)
-        bg_top = max(top - text_h - 6, 0)
+        padding = 6
+        bg_top = max(top - text_h - padding * 2, 0)
         bg_bottom = top
         bg_left = left
-        bg_right = left + text_w + 8
+        bg_right = left + text_w + padding * 2
         draw.rectangle([(bg_left, bg_top), (bg_right, bg_bottom)], fill="lime")
-        available_height = max(bg_bottom - bg_top, text_h)
-        text_y = bg_top + max((available_height - text_h) // 2, 0)
-        draw.text((bg_left + 4, text_y), label, fill="black", font=font)
+        available_height = bg_bottom - bg_top
+        text_y = bg_top + (available_height - text_h) / 2
+        text_y = max(bg_top, min(text_y, bg_bottom - text_h))
+        draw.text((bg_left + padding, text_y), label, fill="black", font=font)
 
     image.save(output_path)
 
@@ -650,8 +652,8 @@ def _draw_visualization(
     draw = ImageDraw.Draw(image)
 
     def select_font(box_height: int) -> ImageFont.ImageFont:
-        baseline = max(24, int(max(box_height, 1) * 0.4))
-        size = min(96, ((baseline + 7) // 8) * 8)
+        baseline = max(16, int(max(box_height, 1) * 0.2))
+        size = min(64, ((baseline + 7) // 8) * 8)
         return _load_font(size)
 
     def measure(text: str, font: ImageFont.ImageFont) -> Tuple[int, int]:
@@ -668,14 +670,16 @@ def _draw_visualization(
         tag = f"{det.detection_id}: {label}" if label else f"{det.detection_id}"
         font = select_font(bottom - top)
         text_w, text_h = measure(tag, font)
+        padding = 6
         bg_left = left
         bg_top = top
-        bg_right = left + text_w + 8
-        bg_bottom = top + text_h + 8
+        bg_right = left + text_w + padding * 2
+        bg_bottom = top + text_h + padding * 2
         draw.rectangle([(bg_left, bg_top), (bg_right, bg_bottom)], fill="cyan")
         available_height = bg_bottom - bg_top
-        text_y = bg_top + max((available_height - text_h) // 2, 0)
-        draw.text((bg_left + 4, text_y), tag, fill="black", font=font)
+        text_y = bg_top + (available_height - text_h) / 2
+        text_y = max(bg_top, min(text_y, bg_bottom - text_h))
+        draw.text((bg_left + padding, text_y), tag, fill="black", font=font)
 
     image.save(output_path)
 
