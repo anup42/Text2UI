@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import time
 import sys
 from dataclasses import dataclass
 from functools import lru_cache
@@ -390,6 +391,8 @@ def generate_icon_names(
     results: Dict[Path, str] = {}
     idx = 0
     total_paths = len(image_paths)
+    processed_images = 0
+    start_time = time.perf_counter()
     while idx < total_paths:
         current_batch = min(effective_batch, total_paths - idx)
         while current_batch >= 1:
@@ -445,6 +448,11 @@ def generate_icon_names(
                         handle.write("\n")
                     if progress is not None:
                         progress.update(1)
+                        processed_images += 1
+                        if processed_images > 0:
+                            elapsed = time.perf_counter() - start_time
+                            seconds_per_image = elapsed / processed_images
+                            progress.set_postfix({"s/img": f"{seconds_per_image:.2f}"})
 
                 idx += current_batch
                 break  # success
