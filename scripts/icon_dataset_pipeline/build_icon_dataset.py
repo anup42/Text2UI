@@ -901,8 +901,6 @@ def run_pipeline(args: argparse.Namespace) -> None:
     )
 
     max_memory_override = args.qwen_max_memory or _auto_max_memory_string()
-
-    label_bar = None if args.quiet else tqdm(total=len(overlay_info), desc="labels", unit="img")
     processed_overlays: Set[Path] = set()
 
     def handle_result(overlay_path: Path, raw_text: str) -> None:
@@ -919,9 +917,6 @@ def run_pipeline(args: argparse.Namespace) -> None:
                 name_map = {det.detection_id: id_to_label.get(det.detection_id, "") for det in detections}
                 _draw_visualization(viz_image, detections, name_map, viz_dir / f"{image_path.stem}_viz{image_path.suffix}")
         processed_overlays.add(overlay_path)
-        if label_bar is not None:
-            label_bar.update(1)
-
     qwen_outputs = generate_icon_names(
         image_paths=overlay_paths,
         config=qwen_config,
@@ -940,10 +935,6 @@ def run_pipeline(args: argparse.Namespace) -> None:
     for overlay_path in remaining:
         raw_text = qwen_outputs.get(overlay_path, "")
         handle_result(overlay_path, raw_text)
-
-    if label_bar is not None:
-        label_bar.close()
-
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Detect icons and build JSON label files using Qwen3 VL.")
