@@ -959,7 +959,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--qwen-dtype", default="float16")
     parser.add_argument("--qwen-batch-size", type=int, default=1)
     parser.add_argument("--qwen-prompt", default=None, help="Override the default Qwen prompt.")
-    parser.add_argument("--qwen-max-new-tokens", type=int, default=128)
+    parser.add_argument("--qwen-max-new-tokens", type=int, default=160)
     parser.add_argument("--qwen-temperature", type=float, default=0.1)
     parser.add_argument("--qwen-top-p", type=float, default=0.9)
     parser.add_argument("--qwen-device-map", default="auto")
