@@ -613,7 +613,7 @@ def _draw_overlay(
     draw = ImageDraw.Draw(image)
 
     def select_font(box_height: int) -> ImageFont.ImageFont:
-        baseline = max(35, int(max(box_height, 1) * 0.2))
+        baseline = max(30, int(max(box_height, 1) * 0.2))
         size = min(80, ((baseline + 7) // 8) * 8)
         return _load_font(size)
 
@@ -660,7 +660,7 @@ def _draw_visualization(
     draw = ImageDraw.Draw(image)
 
     def select_font(box_height: int) -> ImageFont.ImageFont:
-        baseline = max(35, int(max(box_height, 1) * 0.2))
+        baseline = max(30, int(max(box_height, 1) * 0.2))
         size = min(80, ((baseline + 7) // 8) * 8)
         return _load_font(size)
 
