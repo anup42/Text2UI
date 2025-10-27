@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
+import re
 
 import numpy as np
 import torch
@@ -48,6 +49,7 @@ from torch.backends.cuda import sdp_kernel
 YOLO_INPUT_DIM = 640
 LETTERBOX_COLOR = (114, 114, 114)
 TOP_BAR_RATIO = 0.04  # Ignore detections within the top N% of the image height
+BOX_GROWTH_RATIO = 0.08  # Expand detected icon boxes by this fraction
 
 FONT_DIR = Path(__file__).resolve().parent / "fonts"
 FONT_DIR.mkdir(parents=True, exist_ok=True)
@@ -309,7 +311,7 @@ def generate_icon_names(
     attn_backend: str = "sdpa",
     max_memory: Optional[str] = None,
     offload_dir: Optional[Path] = None,
-) -> None:
+) -> Dict[Path, str]:
     _auto_enable_4bit(config)
 
     if torch.cuda.is_available():
@@ -381,6 +383,7 @@ def generate_icon_names(
     effective_batch = max(1, min(batch_size, MAX_BATCH_SIZE))
     print(f">> Effective batch size: {effective_batch}", file=sys.stderr)
 
+    results: Dict[Path, str] = {}
     for start in range(0, len(image_paths), effective_batch):
         batch_paths = image_paths[start : start + effective_batch]
         images = _load_images(batch_paths, max_edge)
@@ -445,7 +448,9 @@ def generate_icon_names(
 
         decoded = processor.batch_decode(gen_only, skip_special_tokens=True)
         for path, text in zip(batch_paths, decoded):
-            record = {"image": str(path), "icon_names": text.strip()}
+            cleaned = text.strip()
+            results[path] = cleaned
+            record = {"image": str(path), "icon_names": cleaned}
             output_path = output_dir / path.with_suffix(".json").name
             with output_path.open("w", encoding="utf-8") as handle:
                 json.dump(record, handle, ensure_ascii=False, indent=2)
@@ -455,7 +460,7 @@ def generate_icon_names(
 
     if progress is not None:
         progress.close()
-
+    return results
 def _box_iou(a: np.ndarray, b: np.ndarray) -> float:
     x_left = max(a[0], b[0])
     y_top = max(a[1], b[1])
@@ -699,6 +704,17 @@ def _collect_images(images_dir: Path) -> List[Path]:
 
 def _parse_qwen_output(text: str) -> Dict[int, str]:
     labels: Dict[int, str] = {}
+    pattern = re.compile(
+        r"(?:^|\s)(?:id_)?(\d+)\s*:\s*([^\s][^:]*?)(?=(?:\s+(?:id_)?\d+\s*:)|$)",
+        re.IGNORECASE,
+    )
+    for match in pattern.finditer(text.strip()):
+        index = int(match.group(1))
+        value = match.group(2).strip()
+        if value:
+            labels[index] = value
+    if labels:
+        return labels
     for line in text.splitlines():
         line = line.strip()
         if not line or ":" not in line:
@@ -717,31 +733,47 @@ def _parse_qwen_output(text: str) -> Dict[int, str]:
     return labels
 
 
-def _write_yolo_labels(
-    image: Image.Image,
+def _expand_detections(detections: List[Detection], width: int, height: int) -> None:
+    for det in detections:
+        left, top, right, bottom = det.bbox
+        box_w = right - left
+        box_h = bottom - top
+        if box_w <= 0 or box_h <= 0:
+            continue
+        dx = max(1, int(box_w * BOX_GROWTH_RATIO))
+        dy = max(1, int(box_h * BOX_GROWTH_RATIO))
+        new_left = max(0, left - dx)
+        new_top = max(0, top - dy)
+        new_right = min(width, right + dx)
+        new_bottom = min(height, bottom + dy)
+        det.bbox = (new_left, new_top, new_right, new_bottom)
+
+
+def _write_label_records(
     detections: List[Detection],
     id_to_label: Dict[int, str],
-    label_map: Dict[str, int],
     output_path: Path,
 ) -> None:
-    width, height = image.size
-    lines: List[str] = []
+    entries: List[dict] = []
     for det in detections:
-        if det.detection_id is None:
-            continue
-        name = id_to_label.get(det.detection_id)
-        if not name:
-            continue
-        cls_id = label_map.setdefault(name, len(label_map))
         left, top, right, bottom = det.bbox
-        cx = ((left + right) / 2.0) / width
-        cy = ((top + bottom) / 2.0) / height
-        bw = (right - left) / width
-        bh = (bottom - top) / height
-        lines.append(f"{cls_id} {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}")
-
-    if lines:
-        output_path.write_text("\n".join(lines), encoding="utf-8")
+        entry = {
+            "id": det.detection_id,
+            "name": id_to_label.get(det.detection_id, ""),
+            "box": {
+                "left": left,
+                "top": top,
+                "right": right,
+                "bottom": bottom,
+                "width": max(0, right - left),
+                "height": max(0, bottom - top),
+            },
+            "class_id": det.label_index,
+        }
+        entries.append(entry)
+    with output_path.open("w", encoding="utf-8") as handle:
+        json.dump(entries, handle, ensure_ascii=False, indent=2)
+        handle.write("\n")
 
 
 def run_pipeline(args: argparse.Namespace) -> None:
@@ -775,17 +807,21 @@ def run_pipeline(args: argparse.Namespace) -> None:
 
     for image_path in images:
         with Image.open(image_path) as img:
-            detections = detector.detect(img)
-            cutoff = int(img.height * TOP_BAR_RATIO)
+            rgb_image = img.convert("RGB")
+            detections = detector.detect(rgb_image)
+            cutoff = int(rgb_image.height * TOP_BAR_RATIO)
             detections = [det for det in detections if det.bbox[1] >= cutoff]
-            overlay_image = img.convert("RGB")
+            if detections:
+                _expand_detections(detections, rgb_image.width, rgb_image.height)
+                _assign_detection_ids(detections)
+                detections_by_image[image_path] = detections
+                overlay_image = rgb_image.copy()
+            else:
+                overlay_image = rgb_image
         if detection_bar is not None:
             detection_bar.update(1)
         if not detections:
             continue
-        _assign_detection_ids(detections)
-        detections_by_image[image_path] = detections
-
         overlay_path = overlay_dir / f"{image_path.stem}_overlay{image_path.suffix}"
         _draw_overlay(overlay_image, detections, overlay_path)
         overlay_paths.append(overlay_path)
@@ -814,7 +850,7 @@ def run_pipeline(args: argparse.Namespace) -> None:
 
     max_memory_override = args.qwen_max_memory or _auto_max_memory_string()
 
-    generate_icon_names(
+    qwen_outputs = generate_icon_names(
         image_paths=overlay_paths,
         config=qwen_config,
         prompt=args.qwen_prompt or DEFAULT_PROMPT,
@@ -827,43 +863,38 @@ def run_pipeline(args: argparse.Namespace) -> None:
         offload_dir=Path(args.qwen_offload_dir) if args.qwen_offload_dir else None,
     )
 
-    label_map: Dict[str, int] = {}
-    classes_path = labels_dir / "classes.txt"
-    if classes_path.exists():
-        existing = [line.strip() for line in classes_path.read_text(encoding="utf-8").splitlines() if line.strip()]
-        label_map = {name: idx for idx, name in enumerate(existing)}
-
     label_bar = None if args.quiet else tqdm(total=len(detections_by_image), desc="labels", unit="img")
 
     for image_path, detections in detections_by_image.items():
         overlay_path = overlay_dir / f"{image_path.stem}_overlay{image_path.suffix}"
-        qwen_json = qwen_output_dir / f"{overlay_path.stem}.json"
-        if not qwen_json.exists():
-            continue
-        with qwen_json.open("r", encoding="utf-8") as handle:
-            payload = json.load(handle)
-        id_to_label = _parse_qwen_output(payload.get("icon_names", ""))
+        raw_text = qwen_outputs.get(overlay_path)
+        if raw_text is None:
+            qwen_json = qwen_output_dir / f"{overlay_path.stem}.json"
+            if qwen_json.exists():
+                with qwen_json.open("r", encoding="utf-8") as handle:
+                    payload = json.load(handle)
+                raw_text = payload.get("icon_names", "")
+            else:
+                raw_text = ""
+        id_to_label = _parse_qwen_output(raw_text or "")
 
-        with Image.open(image_path) as img:
-            label_file = labels_dir / f"{image_path.stem}.txt"
-            _write_yolo_labels(img, detections, id_to_label, label_map, label_file)
-            if args.visualize:
+        label_file = labels_dir / f"{image_path.stem}.json"
+        _write_label_records(detections, id_to_label, label_file)
+
+        if args.visualize:
+            with Image.open(image_path) as img:
                 viz_image = img.copy()
-                viz_labels = {det_id: id_to_label.get(det_id, "") for det_id in id_to_label}
-                _draw_visualization(viz_image, detections, viz_labels, viz_dir / f"{image_path.stem}_viz{image_path.suffix}")
+                name_map = {det.detection_id: id_to_label.get(det.detection_id, "") for det in detections}
+                _draw_visualization(viz_image, detections, name_map, viz_dir / f"{image_path.stem}_viz{image_path.suffix}")
         if label_bar is not None:
             label_bar.update(1)
 
     if label_bar is not None:
         label_bar.close()
 
-    if label_map:
-        ordered = sorted(label_map.items(), key=lambda item: item[1])
-        classes_path.write_text("\n".join(name for name, _ in ordered), encoding="utf-8")
-
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Detect icons and build YOLO formatted labels using Qwen3 VL.")
+    parser = argparse.ArgumentParser(description="Detect icons and build JSON label files using Qwen3 VL.")
     parser.add_argument("--image-dir", required=True, help="Directory of input screenshots.")
     parser.add_argument("--output-dir", required=True, help="Directory where outputs will be written.")
     default_assets_root = Path(__file__).resolve().parent
