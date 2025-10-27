@@ -41,12 +41,18 @@ def _move_images(images: List[Path], subfolders: List[Path], per_folder: int) ->
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Split images into sequentially numbered folders.")
-    parser.add_argument("images_dir", type=Path, help="Directory containing the images to split.")
+    parser.add_argument("--images_dir", type=Path, help="Directory containing the images to split.")
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="Directory where numbered folders will be created. Defaults to images_dir.",
+    )
     parser.add_argument(
         "--per-folder",
         type=int,
         default=50,
-        help="Maximum number of images to place in each folder (except the final one, which receives any remainder). ",
+        help="Maximum number of images to place in each folder (final folder receives remainder).",
     )
     args = parser.parse_args()
 
@@ -55,6 +61,9 @@ def main() -> None:
         print(f"ERROR: '{images_dir}' is not a valid directory.", file=sys.stderr)
         sys.exit(1)
 
+    target_dir: Path = (args.output_dir if args.output_dir else images_dir).resolve()
+    target_dir.mkdir(parents=True, exist_ok=True)
+
     images = _collect_images(images_dir)
     if not images:
         print("No supported images found. Nothing to do.")
@@ -62,10 +71,10 @@ def main() -> None:
 
     per_folder = max(1, args.per_folder)
     num_subfolders = max(1, (len(images) + per_folder - 1) // per_folder)
-    subfolders = _ensure_subfolders(images_dir, num_subfolders)
+    subfolders = _ensure_subfolders(target_dir, num_subfolders)
     _move_images(images, subfolders, per_folder)
     print(
-        f"Moved {len(images)} images into folders 1..{num_subfolders} under {images_dir} "
+        f"Moved {len(images)} images into folders 1..{num_subfolders} under {target_dir} "
         f"({per_folder} images per folder, last folder may contain fewer)."
     )
 
