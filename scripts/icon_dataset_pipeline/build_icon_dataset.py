@@ -610,8 +610,8 @@ def _draw_overlay(
     draw = ImageDraw.Draw(image)
 
     def select_font(box_height: int) -> ImageFont.ImageFont:
-        baseline = max(32, int(max(box_height, 1) * 0.5))
-        size = min(128, ((baseline + 7) // 8) * 8)
+        baseline = max(24, int(max(box_height, 1) * 0.4))
+        size = min(96, ((baseline + 7) // 8) * 8)
         return _load_font(size)
 
     def measure(text: str, font: ImageFont.ImageFont) -> Tuple[int, int]:
@@ -645,8 +645,8 @@ def _draw_visualization(
     draw = ImageDraw.Draw(image)
 
     def select_font(box_height: int) -> ImageFont.ImageFont:
-        baseline = max(32, int(max(box_height, 1) * 0.5))
-        size = min(128, ((baseline + 7) // 8) * 8)
+        baseline = max(24, int(max(box_height, 1) * 0.4))
+        size = min(96, ((baseline + 7) // 8) * 8)
         return _load_font(size)
 
     def measure(text: str, font: ImageFont.ImageFont) -> Tuple[int, int]:
