@@ -450,6 +450,8 @@ def generate_icon_names(
         for path, text in zip(batch_paths, decoded):
             cleaned = text.strip()
             results[path] = cleaned
+            if on_result is not None:
+                on_result(path, cleaned)
             record = {"image": str(path), "icon_names": cleaned}
             output_path = output_dir / path.with_suffix(".json").name
             with output_path.open("w", encoding="utf-8") as handle:
@@ -611,7 +613,7 @@ def _draw_overlay(
     draw = ImageDraw.Draw(image)
 
     def select_font(box_height: int) -> ImageFont.ImageFont:
-        baseline = max(28, int(max(box_height, 1) * 0.2))
+        baseline = max(35, int(max(box_height, 1) * 0.2))
         size = min(80, ((baseline + 7) // 8) * 8)
         return _load_font(size)
 
@@ -658,7 +660,7 @@ def _draw_visualization(
     draw = ImageDraw.Draw(image)
 
     def select_font(box_height: int) -> ImageFont.ImageFont:
-        baseline = max(28, int(max(box_height, 1) * 0.2))
+        baseline = max(35, int(max(box_height, 1) * 0.2))
         size = min(80, ((baseline + 7) // 8) * 8)
         return _load_font(size)
 
