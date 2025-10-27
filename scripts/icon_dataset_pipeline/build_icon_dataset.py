@@ -383,7 +383,7 @@ def generate_icon_names(
         print(f">> Generation cache enabled: {config.use_cache}", file=sys.stderr)
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    progress = tqdm(total=len(image_paths), desc="screenshots", unit="img") if not quiet else None
+    progress = tqdm(total=len(image_paths), desc="Images", unit="img") if not quiet else None
 
     effective_batch = max(1, batch_size)
     print(f">> Effective batch size: {effective_batch}", file=sys.stderr)
@@ -452,7 +452,13 @@ def generate_icon_names(
                         if processed_images > 0:
                             elapsed = time.perf_counter() - start_time
                             seconds_per_image = elapsed / processed_images
-                            progress.set_postfix({"s/img": f"{seconds_per_image:.2f}"})
+                            images_per_minute = 60.0 / seconds_per_image if seconds_per_image > 0 else 0.0
+                            progress.set_postfix(
+                                {
+                                    "avg_s_per_image": f"{seconds_per_image:.1f}",
+                                    "images_per_min": f"{images_per_minute:.1f}",
+                                }
+                            )
 
                 idx += current_batch
                 break  # success
