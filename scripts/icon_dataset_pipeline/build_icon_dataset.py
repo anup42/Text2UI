@@ -634,19 +634,22 @@ def _draw_overlay(
         font = select_font(bottom - top)
         text_w, text_h, offset_y = measure(label, font)
         padding = 6
-        bg_top = max(top - text_h - padding * 2, 0)
-        bg_bottom = top
+        available_height = text_h + padding * 2
+        if top >= available_height + 2:
+            bg_bottom = top - 2
+            bg_top = bg_bottom - available_height
+        else:
+            bg_top = top
+            bg_bottom = top + available_height
         bg_left = left
         bg_right = left + text_w + padding * 2
         draw.rectangle([(bg_left, bg_top), (bg_right, bg_bottom)], fill="lime")
-        available_height = bg_bottom - bg_top
-        center_y = bg_top + available_height / 2
+        baseline_y = bg_top + padding - offset_y
         text_x = bg_left + padding
         try:
-            draw.text((text_x, center_y), label, fill="black", font=font, anchor="lm")
+            draw.text((text_x, baseline_y), label, fill="black", font=font, anchor="la")
         except TypeError:
-            text_y = center_y - text_h / 2 - offset_y
-            draw.text((text_x, text_y), label, fill="black", font=font)
+            draw.text((text_x, baseline_y), label, fill="black", font=font)
 
     image.save(output_path)
 
@@ -681,18 +684,21 @@ def _draw_visualization(
         text_w, text_h, offset_y = measure(tag, font)
         padding = 6
         bg_left = left
-        bg_top = top
+        available_height = text_h + padding * 2
+        if top >= available_height + 2:
+            bg_bottom = top - 2
+            bg_top = bg_bottom - available_height
+        else:
+            bg_top = top
+            bg_bottom = top + available_height
         bg_right = left + text_w + padding * 2
-        bg_bottom = top + text_h + padding * 2
         draw.rectangle([(bg_left, bg_top), (bg_right, bg_bottom)], fill="cyan")
-        available_height = bg_bottom - bg_top
-        center_y = bg_top + available_height / 2
+        baseline_y = bg_top + padding - offset_y
         text_x = bg_left + padding
         try:
-            draw.text((text_x, center_y), tag, fill="black", font=font, anchor="lm")
+            draw.text((text_x, baseline_y), tag, fill="black", font=font, anchor="la")
         except TypeError:
-            text_y = center_y - text_h / 2 - offset_y
-            draw.text((text_x, text_y), tag, fill="black", font=font)
+            draw.text((text_x, baseline_y), tag, fill="black", font=font)
 
     image.save(output_path)
 
