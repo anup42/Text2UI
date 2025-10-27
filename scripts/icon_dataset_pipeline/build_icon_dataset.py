@@ -19,7 +19,7 @@ import sys
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Tuple, Set
 import re
 
 import numpy as np
@@ -94,12 +94,12 @@ def _load_font(size: int) -> ImageFont.ImageFont:
 
 DEFAULT_PROMPT = (
     "You are an expert UI icon identifier. Every icon in the screenshot already has a bounding box "
-    "with a numeric ID e.g. id_1 printed on top of it in green color. Produce one line per icon using the exact format 'ID: name'. "
+    "with a numeric ID e.g. id_1 printed on top of it in green color. Produce icon details separated by space using the exact format 'ID: name'. "
     "Copy the numeric ID exactly as shown (do not renumber, skip, merge, or invent IDs) and describe the icon "
     "with a concise lowercase name (e.g., '1: delete'). Only use the pattern 'app_<app name>' when the marked item is an "
     "actual app launcher logo such as icons found in a home screen grid or dock. Do not apply the 'app_' prefix to "
     "system controls, action buttons, or whenever you are unsure; fall back to a descriptive noun instead (e.g., '2: settings', "
-    "'5: home'). List the lines in ascending order by ID separated by space."
+    "'5: home'). Write them in ascending order by ID separated by space."
 )
 
 DEFAULT_CPU_MEMORY = "64GiB"
@@ -310,6 +310,7 @@ def generate_icon_names(
     attn_backend: str = "sdpa",
     max_memory: Optional[str] = None,
     offload_dir: Optional[Path] = None,
+    on_result: Optional[Callable[[Path, str], None]] = None,
 ) -> Dict[Path, str]:
     _auto_enable_4bit(config)
 
@@ -821,8 +822,8 @@ def run_pipeline(args: argparse.Namespace) -> None:
     if args.visualize:
         viz_dir.mkdir(parents=True, exist_ok=True)
 
-    detections_by_image: Dict[Path, List[Detection]] = {}
     overlay_paths: List[Path] = []
+    overlay_info: Dict[Path, Tuple[Path, List[Detection]]] = {}
 
     detection_bar = None if args.quiet else tqdm(total=len(images), desc="detect", unit="img")
 
@@ -835,7 +836,6 @@ def run_pipeline(args: argparse.Namespace) -> None:
             if detections:
                 _expand_detections(detections, rgb_image.width, rgb_image.height)
                 _assign_detection_ids(detections)
-                detections_by_image[image_path] = detections
                 overlay_image = rgb_image.copy()
             else:
                 overlay_image = rgb_image
@@ -846,11 +846,12 @@ def run_pipeline(args: argparse.Namespace) -> None:
         overlay_path = overlay_dir / f"{image_path.stem}_overlay{image_path.suffix}"
         _draw_overlay(overlay_image, detections, overlay_path)
         overlay_paths.append(overlay_path)
+        overlay_info[overlay_path] = (image_path, detections)
 
     if detection_bar is not None:
         detection_bar.close()
 
-    if not detections_by_image:
+    if not overlay_info:
         print("No icons detected across input images.", file=sys.stderr)
         return
 
@@ -871,6 +872,26 @@ def run_pipeline(args: argparse.Namespace) -> None:
 
     max_memory_override = args.qwen_max_memory or _auto_max_memory_string()
 
+    label_bar = None if args.quiet else tqdm(total=len(overlay_info), desc="labels", unit="img")
+    processed_overlays: Set[Path] = set()
+
+    def handle_result(overlay_path: Path, raw_text: str) -> None:
+        info = overlay_info.get(overlay_path)
+        if info is None:
+            return
+        image_path, detections = info
+        id_to_label = _parse_qwen_output(raw_text or "")
+        label_file = labels_dir / f"{image_path.stem}.json"
+        _write_label_records(detections, id_to_label, label_file)
+        if args.visualize and detections:
+            with Image.open(image_path) as img:
+                viz_image = img.copy()
+                name_map = {det.detection_id: id_to_label.get(det.detection_id, "") for det in detections}
+                _draw_visualization(viz_image, detections, name_map, viz_dir / f"{image_path.stem}_viz{image_path.suffix}")
+        processed_overlays.add(overlay_path)
+        if label_bar is not None:
+            label_bar.update(1)
+
     qwen_outputs = generate_icon_names(
         image_paths=overlay_paths,
         config=qwen_config,
@@ -882,33 +903,13 @@ def run_pipeline(args: argparse.Namespace) -> None:
         attn_backend=args.qwen_attn_backend,
         max_memory=max_memory_override,
         offload_dir=Path(args.qwen_offload_dir) if args.qwen_offload_dir else None,
+        on_result=handle_result,
     )
 
-    label_bar = None if args.quiet else tqdm(total=len(detections_by_image), desc="labels", unit="img")
-
-    for image_path, detections in detections_by_image.items():
-        overlay_path = overlay_dir / f"{image_path.stem}_overlay{image_path.suffix}"
-        raw_text = qwen_outputs.get(overlay_path)
-        if raw_text is None:
-            qwen_json = qwen_output_dir / f"{overlay_path.stem}.json"
-            if qwen_json.exists():
-                with qwen_json.open("r", encoding="utf-8") as handle:
-                    payload = json.load(handle)
-                raw_text = payload.get("icon_names", "")
-            else:
-                raw_text = ""
-        id_to_label = _parse_qwen_output(raw_text or "")
-
-        label_file = labels_dir / f"{image_path.stem}.json"
-        _write_label_records(detections, id_to_label, label_file)
-
-        if args.visualize:
-            with Image.open(image_path) as img:
-                viz_image = img.copy()
-                name_map = {det.detection_id: id_to_label.get(det.detection_id, "") for det in detections}
-                _draw_visualization(viz_image, detections, name_map, viz_dir / f"{image_path.stem}_viz{image_path.suffix}")
-        if label_bar is not None:
-            label_bar.update(1)
+    remaining = [path for path in overlay_info if path not in processed_overlays]
+    for overlay_path in remaining:
+        raw_text = qwen_outputs.get(overlay_path, "")
+        handle_result(overlay_path, raw_text)
 
     if label_bar is not None:
         label_bar.close()
