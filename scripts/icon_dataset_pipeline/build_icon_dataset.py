@@ -610,7 +610,7 @@ def _draw_overlay(
     draw = ImageDraw.Draw(image)
 
     def select_font(box_height: int) -> ImageFont.ImageFont:
-        baseline = max(24, int(max(box_height, 1) * 0.2))
+        baseline = max(28, int(max(box_height, 1) * 0.2))
         size = min(80, ((baseline + 7) // 8) * 8)
         return _load_font(size)
 
@@ -637,9 +637,13 @@ def _draw_overlay(
         bg_right = left + text_w + padding * 2
         draw.rectangle([(bg_left, bg_top), (bg_right, bg_bottom)], fill="lime")
         available_height = bg_bottom - bg_top
-        text_y = bg_top + (available_height - text_h) / 2 - offset_y
-        text_y = max(bg_top - offset_y, min(text_y, bg_bottom - text_h - offset_y))
-        draw.text((bg_left + padding, text_y), label, fill="black", font=font)
+        center_y = bg_top + available_height / 2
+        text_x = bg_left + padding
+        try:
+            draw.text((text_x, center_y), label, fill="black", font=font, anchor="lm")
+        except TypeError:
+            text_y = center_y - text_h / 2 - offset_y
+            draw.text((text_x, text_y), label, fill="black", font=font)
 
     image.save(output_path)
 
@@ -653,7 +657,7 @@ def _draw_visualization(
     draw = ImageDraw.Draw(image)
 
     def select_font(box_height: int) -> ImageFont.ImageFont:
-        baseline = max(24, int(max(box_height, 1) * 0.2))
+        baseline = max(28, int(max(box_height, 1) * 0.2))
         size = min(80, ((baseline + 7) // 8) * 8)
         return _load_font(size)
 
@@ -679,9 +683,13 @@ def _draw_visualization(
         bg_bottom = top + text_h + padding * 2
         draw.rectangle([(bg_left, bg_top), (bg_right, bg_bottom)], fill="cyan")
         available_height = bg_bottom - bg_top
-        text_y = bg_top + (available_height - text_h) / 2 - offset_y
-        text_y = max(bg_top - offset_y, min(text_y, bg_bottom - text_h - offset_y))
-        draw.text((bg_left + padding, text_y), tag, fill="black", font=font)
+        center_y = bg_top + available_height / 2
+        text_x = bg_left + padding
+        try:
+            draw.text((text_x, center_y), tag, fill="black", font=font, anchor="lm")
+        except TypeError:
+            text_y = center_y - text_h / 2 - offset_y
+            draw.text((text_x, text_y), tag, fill="black", font=font)
 
     image.save(output_path)
 
