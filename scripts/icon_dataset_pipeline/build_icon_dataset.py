@@ -94,12 +94,12 @@ def _load_font(size: int) -> ImageFont.ImageFont:
 
 DEFAULT_PROMPT = (
     "You are an expert UI icon identifier. Every icon in the screenshot already has a bounding box "
-    "with a numeric ID e.g. id_1 printed on top of it in green color. Produce icon details separated by space using the exact format 'ID: name'. "
+    "with a numeric ID e.g. id_1 printed on top of it in green color. Produce icon details separated by space without newline using the exact format 'ID: name'. "
     "Copy the numeric ID exactly as shown (do not renumber, skip, merge, or invent IDs) and describe the icon "
-    "with a concise lowercase name (e.g., '1: delete'). Only use the pattern 'app_<app name>' when the marked item is an "
+    "with a concise lowercase name (e.g., '1: delete 2: close'). Only use the pattern 'app_<app name>' when the marked item is an "
     "actual app launcher logo such as icons found in a home screen grid or dock. Do not apply the 'app_' prefix to "
-    "system controls, action buttons, or whenever you are unsure; fall back to a descriptive noun instead (e.g., '2: settings', "
-    "'5: home'). Write them in ascending order by ID separated by space."
+    "system controls, action buttons, or whenever you are unsure; fall back to a descriptive noun instead (e.g., '2: settings' "
+    "'5: home'). Write them in ascending order by ID."
 )
 
 DEFAULT_CPU_MEMORY = "64GiB"
