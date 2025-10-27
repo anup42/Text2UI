@@ -629,9 +629,14 @@ def _draw_overlay(
         label = f"{id_prefix}{det.detection_id}"
         font = select_font(bottom - top)
         text_w, text_h = measure(label, font)
-        background = [left, max(top - text_h - 6, 0), left + text_w + 8, top]
-        draw.rectangle(background, fill="lime")
-        draw.text((left + 4, max(top - text_h - 4, 0)), label, fill="black", font=font)
+        bg_top = max(top - text_h - 6, 0)
+        bg_bottom = top
+        bg_left = left
+        bg_right = left + text_w + 8
+        draw.rectangle([(bg_left, bg_top), (bg_right, bg_bottom)], fill="lime")
+        available_height = max(bg_bottom - bg_top, text_h)
+        text_y = bg_top + max((available_height - text_h) // 2, 0)
+        draw.text((bg_left + 4, text_y), label, fill="black", font=font)
 
     image.save(output_path)
 
@@ -663,11 +668,14 @@ def _draw_visualization(
         tag = f"{det.detection_id}: {label}" if label else f"{det.detection_id}"
         font = select_font(bottom - top)
         text_w, text_h = measure(tag, font)
-        draw.rectangle(
-            [(left, top), (left + text_w + 8, top + text_h + 8)],
-            fill="cyan",
-        )
-        draw.text((left + 4, top + 4), tag, fill="black", font=font)
+        bg_left = left
+        bg_top = top
+        bg_right = left + text_w + 8
+        bg_bottom = top + text_h + 8
+        draw.rectangle([(bg_left, bg_top), (bg_right, bg_bottom)], fill="cyan")
+        available_height = bg_bottom - bg_top
+        text_y = bg_top + max((available_height - text_h) // 2, 0)
+        draw.text((bg_left + 4, text_y), tag, fill="black", font=font)
 
     image.save(output_path)
 
