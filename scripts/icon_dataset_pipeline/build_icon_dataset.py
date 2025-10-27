@@ -384,81 +384,84 @@ def generate_icon_names(
     print(f">> Effective batch size: {effective_batch}", file=sys.stderr)
 
     results: Dict[Path, str] = {}
-    for start in range(0, len(image_paths), effective_batch):
-        batch_paths = image_paths[start : start + effective_batch]
-        images = _load_images(batch_paths, max_edge)
-        messages_batch = [_prepare_messages(prompt, image) for image in images]
+    idx = 0
+    total_paths = len(image_paths)
+    while idx < total_paths:
+        current_batch = min(effective_batch, total_paths - idx)
+        while current_batch >= 1:
+            batch_paths = image_paths[idx : idx + current_batch]
+            images = _load_images(batch_paths, max_edge)
+            messages_batch = [_prepare_messages(prompt, image) for image in images]
 
-        chat_prompts = [
-            processor.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=True,
-            )
-            for messages in messages_batch
-        ]
-
-        inputs = processor(
-            text=chat_prompts,
-            images=images,
-            return_tensors="pt",
-        )
-        device_inputs = {}
-        for key, value in inputs.items():
-            if torch.is_floating_point(value):
-                device_inputs[key] = value.to(model.device, dtype=torch_dtype, non_blocking=True)
-            else:
-                device_inputs[key] = value.to(model.device)
-
-        with torch.no_grad():
-            try:
-                generated_ids = model.generate(
-                    **device_inputs,
-                    max_new_tokens=config.max_new_tokens,
-                    temperature=config.temperature,
-                    top_p=config.top_p,
+            chat_prompts = [
+                processor.apply_chat_template(
+                    messages,
+                    tokenize=False,
+                    add_generation_prompt=True,
                 )
+                for messages in messages_batch
+            ]
+
+            inputs = processor(
+                text=chat_prompts,
+                images=images,
+                return_tensors="pt",
+            )
+            device_inputs = {}
+            for key, value in inputs.items():
+                if torch.is_floating_point(value):
+                    device_inputs[key] = value.to(model.device, dtype=torch_dtype, non_blocking=True)
+                else:
+                    device_inputs[key] = value.to(model.device)
+
+            try:
+                with torch.no_grad():
+                    generated_ids = model.generate(
+                        **device_inputs,
+                        max_new_tokens=config.max_new_tokens,
+                        temperature=config.temperature,
+                        top_p=config.top_p,
+                    )
+                input_lengths = device_inputs["attention_mask"].sum(dim=-1).tolist()
+                decoded_sequences = []
+                for seq, in_len in zip(generated_ids, input_lengths):
+                    decoded_sequences.append(seq[in_len:])
+                decoded = processor.batch_decode(decoded_sequences, skip_special_tokens=True)
+
+                for path, text in zip(batch_paths, decoded):
+                    cleaned = text.strip()
+                    results[path] = cleaned
+                    if on_result is not None:
+                        on_result(path, cleaned)
+                    record = {"image": str(path), "icon_names": cleaned}
+                    output_path = output_dir / path.with_suffix(".json").name
+                    with output_path.open("w", encoding="utf-8") as handle:
+                        json.dump(record, handle, ensure_ascii=False, indent=2)
+                        handle.write("\n")
+                    if progress is not None:
+                        progress.update(1)
+
+                idx += current_batch
+                break  # success
+
             except RuntimeError as err:
-                if "cuda out of memory" in str(err).lower():
-                    for idx in range(torch.cuda.device_count()):
-                        stats = torch.cuda.memory_stats(idx)
-                        allocated = stats["allocated_bytes.all.current"] / (1024**3)
-                        reserved = stats["reserved_bytes.all.current"] / (1024**3)
-                        print(
-                            f">> OOM on GPU {idx}: allocated {allocated:.2f} GiB, reserved {reserved:.2f} GiB",
-                            file=sys.stderr,
-                        )
+                if "cuda out of memory" not in str(err).lower() or current_batch == 1:
+                    raise
+                print(
+                    f">> CUDA OOM on batch size {current_batch}; retrying with smaller batch.",
+                    file=sys.stderr,
+                )
+                for device_idx in range(torch.cuda.device_count()):
+                    stats = torch.cuda.memory_stats(device_idx)
+                    allocated = stats["allocated_bytes.all.current"] / (1024**3)
+                    reserved = stats["reserved_bytes.all.current"] / (1024**3)
                     print(
-                        ">> Suggestion: lower --max-edge or --max-new-tokens, enable --load-in-4bit, "
-                        "or set --offload-dir to fast storage.",
+                        f">> GPU {device_idx}: allocated {allocated:.2f} GiB, reserved {reserved:.2f} GiB",
                         file=sys.stderr,
                     )
-                    torch.cuda.empty_cache()
-                    raise RuntimeError(
-                        "CUDA OOM during generation. "
-                        "Consider lowering --max-new-tokens, using --max-edge <smaller>, "
-                        "and ensuring --load-in-4bit is enabled."
-                    ) from err
-                raise
-
-        input_lengths = device_inputs["attention_mask"].sum(dim=-1).tolist()
-        gen_only = []
-        for seq, in_len in zip(generated_ids, input_lengths):
-            gen_only.append(seq[in_len:])
-
-        decoded = processor.batch_decode(gen_only, skip_special_tokens=True)
-        for path, text in zip(batch_paths, decoded):
-            cleaned = text.strip()
-            results[path] = cleaned
-            if on_result is not None:
-                on_result(path, cleaned)
-            record = {"image": str(path), "icon_names": cleaned}
-            output_path = output_dir / path.with_suffix(".json").name
-            with output_path.open("w", encoding="utf-8") as handle:
-                json.dump(record, handle, ensure_ascii=False, indent=2)
-                handle.write("\n")
-            if progress is not None:
-                progress.update(1)
+                current_batch = max(1, current_batch // 2)
+                torch.cuda.empty_cache()
+                continue
 
     if progress is not None:
         progress.close()
