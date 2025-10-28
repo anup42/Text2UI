@@ -820,7 +820,6 @@ def _write_label_records(
                 "width": max(0, right - left),
                 "height": max(0, bottom - top),
             },
-            "class_id": det.label_index,
         }
         entries.append(entry)
     with output_path.open("w", encoding="utf-8") as handle:
@@ -858,6 +857,14 @@ def run_pipeline(args: argparse.Namespace) -> None:
     detection_bar = None if args.quiet else tqdm(total=len(images), desc="detect", unit="img")
 
     for image_path in images:
+        label_file = labels_dir / f"{image_path.stem}.json"
+        if label_file.exists():
+            if not args.quiet:
+                print(f">> Skipping {image_path.name}; label already exists", file=sys.stderr)
+            if detection_bar is not None:
+                detection_bar.update(1)
+            continue
+
         with Image.open(image_path) as img:
             rgb_image = img.convert("RGB")
             detections = detector.detect(rgb_image)
@@ -885,19 +892,23 @@ def run_pipeline(args: argparse.Namespace) -> None:
         print("No icons detected across input images.", file=sys.stderr)
         return
 
+
     _configure_attention(args.qwen_attn_backend)
 
     qwen_config = GenerationConfig(
         model_name=args.qwen_model,
         dtype=args.qwen_dtype,
-        max_new_tokens=args.qwen_max_new_tokens,
-        temperature=args.qwen_temperature,
-        top_p=args.qwen_top_p,
-        device_map=args.qwen_device_map,
-        use_fast_processor=args.qwen_use_fast_processor,
-        load_in_8bit=args.qwen_load_in_8bit,
-        load_in_4bit=args.qwen_load_in_4bit,
-        use_cache=args.qwen_use_cache,
+        max_new_tokens=max(1, args.qwen_max_new_tokens),
+        temperature=args_qwen_temperature,
+        top_p=args_qwen_top_p,
+        device_map=args_qwen_device_map,
+        use_fast_processor=args_qwen_use_fast_processor,
+        load_in_8bit=args_qwen_load_in_8bit,
+        load_in_4bit=args_qwen_load_in_4bit,
+        use_cache=args_qwen_use_cache,
+    )
+    print(
+        file=sys.stderr,
     )
 
     max_memory_override = args.qwen_max_memory or _auto_max_memory_string()
@@ -959,7 +970,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--qwen-dtype", default="float16")
     parser.add_argument("--qwen-batch-size", type=int, default=1)
     parser.add_argument("--qwen-prompt", default=None, help="Override the default Qwen prompt.")
-    parser.add_argument("--qwen-max-new-tokens", type=int, default=160)
+    parser.add_argument(
+        "--qwen-max-new-tokens",
+        type=int,
+        default=160,
+        help="Maximum number of tokens the model may generate per image response.",
+    )
     parser.add_argument("--qwen-temperature", type=float, default=0.1)
     parser.add_argument("--qwen-top-p", type=float, default=0.9)
     parser.add_argument("--qwen-device-map", default="auto")
