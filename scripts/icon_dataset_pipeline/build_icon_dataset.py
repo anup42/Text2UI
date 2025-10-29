@@ -101,7 +101,7 @@ DEFAULT_PROMPT = (
     "If the bounding box does not contain an icon, output 'ID: none'. "
     "Use generic icon names when necessary (e.g., 'arrow_left', 'settings_gear', 'magnifying_glass'). "
     "If the screenshot includes a bottom system navigation bar, use 'recent', 'home', and 'back' for those icons. "
-    "List the outputs in ascending order by ID and separate each pair by a single space."
+    "List the outputs in ascending order by ID and separate each pair by a single space strictly without any newline."
 )
 
 DEFAULT_CPU_MEMORY = "64GiB"
@@ -758,7 +758,7 @@ def _collect_images(images_dir: Path) -> List[Path]:
 def _parse_qwen_output(text: str) -> Dict[int, str]:
     labels: Dict[int, str] = {}
     pattern = re.compile(
-        r"(?:^|\s)(?:id_)?(\d+)\s*:\s*([^\s][^:]*?)(?=(?:\s+(?:id_)?\d+\s*:)|$)",
+        r"(?:^|\s)(?:id_)?(\d+)\s*:\s*([^\s][^:]*?)(?=(?:\s+(?:id_)?\d+\s*:)|(?:\n+(?:id_)?\d+\s*:)|$)",
         re.IGNORECASE,
     )
     for match in pattern.finditer(text.strip()):
@@ -766,6 +766,22 @@ def _parse_qwen_output(text: str) -> Dict[int, str]:
         value = match.group(2).strip()
         if value:
             labels[index] = value
+    if labels:
+        return labels
+    for line in text.replace("\n", " ").split():
+        if ":" not in line:
+            continue
+        raw_key, value = line.split(":", 1)
+        key = raw_key.strip()
+        lower = key.lower()
+        if lower.startswith("id_"):
+            lower = lower[3:]
+        if lower.endswith("."):
+            lower = lower[:-1]
+        if not lower.isdigit():
+            continue
+        icon_id = int(lower)
+        labels[icon_id] = value.strip()
     if labels:
         return labels
     for line in text.splitlines():
