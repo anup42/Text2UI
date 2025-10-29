@@ -1,4 +1,4 @@
 """
-Utilities for building icon detection datasets.
+Icon dataset pipeline utilities.
 """
 

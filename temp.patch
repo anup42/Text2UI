@@ -1,0 +1,10 @@
+*** Begin Patch
+*** Update File: scripts/build_guiowl_dataset.py
+@@
+         image_path, detections = info
++        raw_file = raw_dir / f"{image_path.stem}.json"
++        with raw_file.open("w", encoding="utf-8") as handle:
++            json.dump({"image": str(image_path), "icon_names": raw_text or ""}, handle, ensure_ascii=False, indent=2)
++            handle.write("\n")
+         id_to_label = _parse_model_output(raw_text or "")
+*** End Patch
