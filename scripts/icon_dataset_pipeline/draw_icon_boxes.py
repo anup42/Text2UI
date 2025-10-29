@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Draw icon bounding boxes using both the OmniParser icon detector and the bundled
-TensorFlow Lite YOLO model.
+Draw icon bounding boxes using both the OmniParser icon detector (local weights)
+and the bundled TensorFlow Lite YOLO model.
 
 Given an input folder of screenshots, the script produces two visualizations per
 image:
-* <stem>_omniparser<ext>: detections from microsoft/OmniParser-v2.0/icon_detect.
+* <stem>_omniparser<ext>: detections from an OmniParser icon detector checkpoint.
 * <stem>_tflite<ext>: detections from ui_model_0.5.tflite.
 
 All boxes are rendered in red.
@@ -16,15 +16,10 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Optional, Sequence, Tuple
+from typing import List, Sequence, Tuple
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
-
-try:
-    from huggingface_hub import hf_hub_download
-except ImportError as exc:  # pragma: no cover
-    raise ImportError("Install huggingface_hub to download the OmniParser weights.") from exc
 
 try:
     from ultralytics import YOLO  # type: ignore
@@ -135,9 +130,10 @@ def _to_original(
 
 
 class OmniParserIconDetector:
-    def __init__(self, conf_threshold: float = 0.25) -> None:
-        weights_path = hf_hub_download("microsoft/OmniParser-v2.0", "icon_detect/model.pt")
-        self.model = YOLO(weights_path)
+    def __init__(self, weights_path: Path, conf_threshold: float = 0.25) -> None:
+        if not weights_path.exists():
+            raise FileNotFoundError(f"OmniParser weights not found at {weights_path}")
+        self.model = YOLO(str(weights_path))
         self.conf_threshold = conf_threshold
 
     def detect(self, image_path: Path) -> List[Detection]:
@@ -261,7 +257,8 @@ def run_pipeline(args: argparse.Namespace) -> None:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    omni_detector = OmniParserIconDetector(conf_threshold=args.omni_confidence)
+    omni_model_path = Path(args.omni_model)
+    omni_detector = OmniParserIconDetector(omni_model_path, conf_threshold=args.omni_confidence)
     tflite_model_path = Path(args.tflite_model or Path(__file__).resolve().parent / "ui_model_0.5.tflite")
     tflite_detector = TFLiteIconDetector(tflite_model_path, threshold=args.tflite_threshold)
 
@@ -290,6 +287,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Draw icon bounding boxes using OmniParser and TFLite detectors.")
     parser.add_argument("--image-dir", required=True, help="Directory containing input screenshots.")
     parser.add_argument("--output-dir", required=True, help="Directory where annotated images will be written.")
+    parser.add_argument("--omni-model", required=True, help="Path to OmniParser icon_detect model weights (.pt).")
     parser.add_argument("--omni-confidence", type=float, default=0.25, help="Confidence threshold for OmniParser detections.")
     parser.add_argument("--tflite-model", default=None, help="Override path to ui_model_0.5.tflite.")
     parser.add_argument("--tflite-threshold", type=float, default=0.1, help="Confidence threshold for the TFLite detector.")
