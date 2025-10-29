@@ -95,7 +95,7 @@ def _load_font(size: int) -> ImageFont.ImageFont:
 
 DEFAULT_PROMPT = (
     "You are an expert UI icon identifier. Every icon in the screenshot already has a bounding box "
-    "with a numeric ID printed in green text. Produce labels separated by a single space using the exact format 'ID: name'. "
+    "with a numeric ID printed in green text. Produce labels separated by a single space without any newline using the exact format 'ID: name'. "
     "Copy the numeric ID exactly as shown (do not renumber, skip, merge, or invent IDs) and describe the icon with a concise lowercase name. "
     "When you are unsure of the icon name, prefix it with 'u_' (for example, 'u_delete'). "
     "If the bounding box does not contain an icon, output 'ID: none'. "
