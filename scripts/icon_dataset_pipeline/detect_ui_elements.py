@@ -18,7 +18,7 @@ import sys
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 import torch
 from PIL import Image, ImageDraw, ImageFont
@@ -375,6 +375,7 @@ def generate_model_outputs(
     quiet: bool = False,
     save_raw: bool = True,
     max_memory: Optional[str] = None,
+    on_result: Optional[callable] = None,
 ) -> Dict[Path, str]:
     _auto_enable_4bit(config)
 
@@ -481,10 +482,13 @@ def generate_model_outputs(
                     cleaned = text.strip()
                     results[path] = cleaned
                     if raw_dir is not None:
-                        raw_path = raw_dir / f"{path.stem}.json"
+                        raw_path = raw_dir / f"{path.stem}.txt"
                         with raw_path.open("w", encoding="utf-8") as handle:
-                            json.dump({"image": str(path), "raw": cleaned}, handle, ensure_ascii=False, indent=2)
-                            handle.write("\n")
+                            handle.write(cleaned)
+                            if not cleaned.endswith("\n"):
+                                handle.write("\n")
+                    if on_result is not None:
+                        on_result(path, cleaned)
                     if progress is not None:
                         progress.update(1)
                 idx += current_batch
@@ -518,6 +522,7 @@ def run_pipeline(args: argparse.Namespace) -> None:
     viz_dir = output_root / "visualizations"
     generator_dir = output_root / "generator"
     annotations_dir.mkdir(parents=True, exist_ok=True)
+    generator_dir.mkdir(parents=True, exist_ok=True)
     if args.visualize:
         viz_dir.mkdir(parents=True, exist_ok=True)
 
@@ -539,21 +544,11 @@ def run_pipeline(args: argparse.Namespace) -> None:
         use_cache=args.use_cache,
     )
 
-    responses = generate_model_outputs(
-        image_paths=images,
-        config=config,
-        prompt=prompt,
-        batch_size=args.batch_size,
-        max_edge=args.max_edge,
-        output_dir=generator_dir,
-        quiet=args.quiet,
-        save_raw=args.save_raw,
-        max_memory=args.max_memory,
-    )
-
     failures = 0
-    for path in images:
-        raw_text = responses.get(path, "")
+    processed_paths: Set[Path] = set()
+
+    def handle_result(path: Path, raw_text: str) -> None:
+        nonlocal failures
         with Image.open(path) as img:
             rgb = img.convert("RGB")
             elements = _parse_detection_output(raw_text, rgb.size)
@@ -569,15 +564,19 @@ def run_pipeline(args: argparse.Namespace) -> None:
                     {
                         "category": element.category,
                         "name": element.name,
-                        "bbox": {"x1": element.bbox[0], "y1": element.bbox[1], "x2": element.bbox[2], "y2": element.bbox[3]},
+                        "bbox": {
+                            "x1": element.bbox[0],
+                            "y1": element.bbox[1],
+                            "x2": element.bbox[2],
+                            "y2": element.bbox[3],
+                        },
                         **({"confidence": element.confidence} if element.confidence is not None else {}),
                     }
                     for element in elements
                 ],
-                "raw_model_response": raw_text if args.include_raw_in_annotations else None,
             }
-            if not args.include_raw_in_annotations:
-                record.pop("raw_model_response", None)
+            if args.include_raw_in_annotations:
+                record["raw_model_response"] = raw_text
 
             annotation_path = annotations_dir / f"{path.stem}.json"
             with annotation_path.open("w", encoding="utf-8") as handle:
@@ -587,6 +586,25 @@ def run_pipeline(args: argparse.Namespace) -> None:
             if args.visualize and elements:
                 viz_image = rgb.copy()
                 _draw_annotations(viz_image, elements, viz_dir / f"{path.stem}_viz{path.suffix}")
+        processed_paths.add(path)
+
+    responses = generate_model_outputs(
+        image_paths=images,
+        config=config,
+        prompt=prompt,
+        batch_size=args.batch_size,
+        max_edge=args.max_edge,
+        output_dir=generator_dir,
+        quiet=args.quiet,
+        save_raw=args.save_raw,
+        max_memory=args.max_memory,
+        on_result=handle_result,
+    )
+
+    for path in images:
+        if path not in processed_paths:
+            raw_text = responses.get(path, "")
+            handle_result(path, raw_text)
 
     if failures and not args.quiet:
         print(f">> Completed with {failures} image(s) lacking parsed annotations.", file=sys.stderr)
