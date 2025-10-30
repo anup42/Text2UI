@@ -101,6 +101,8 @@ DEFAULT_PROMPT = (
     "If the bounding box does not contain an icon, output 'ID:none'. "
     "Use generic icon names when necessary (e.g., 'arrow_left', 'settings_gear', 'magnifying_glass'). "
     "If the screenshot includes a bottom system navigation bar, use 'recent', 'home', and 'back' for those icons. "
+    "Only use the pattern 'app_<app name>' when the marked item is an actual app launcher logo such as icons found in a home screen grid or dock. Do not apply the 'app_' prefix to "
+    "system controls, action buttons, or whenever you are unsure; fall back to a descriptive noun instead (e.g., '2:settings 5:home')"
     "List the outputs in ascending order by ID and separate each pair by a single space strictly without any newline."
 )
 
