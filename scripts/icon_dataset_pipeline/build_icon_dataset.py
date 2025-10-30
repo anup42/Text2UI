@@ -20,7 +20,7 @@ import sys
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Callable, Dict, Iterable, List, Optional, Tuple, Set
+from typing import Callable, Dict, Iterable, List, Optional, Tuple
 import re
 
 import numpy as np
@@ -303,6 +303,209 @@ def _build_max_memory_dict(max_memory: Optional[str]) -> Optional[dict]:
     return gpu_mem
 
 
+class IconNameGeneratorRunner:
+    def __init__(
+        self,
+        config: GenerationConfig,
+        attn_backend: str,
+        max_memory: Optional[str],
+        offload_dir: Optional[Path],
+        quiet: bool,
+    ) -> None:
+        self.config = config
+        self.attn_backend = attn_backend
+        self.max_memory = max_memory
+        self.offload_dir = offload_dir or Path(".offload")
+        self.quiet = quiet
+        self._effective_batch_logged = False
+
+        _auto_enable_4bit(self.config)
+
+        if torch.cuda.is_available():
+            print(f">> CUDA devices: {torch.cuda.device_count()}", file=sys.stderr)
+            for idx in range(torch.cuda.device_count()):
+                props = torch.cuda.get_device_properties(idx)
+                print(
+                    f">> GPU {idx}: {props.name}, total {props.total_memory / (1024**3):.1f} GiB",
+                    file=sys.stderr,
+                )
+        else:
+            print(">> No CUDA devices detected; running on CPU.", file=sys.stderr)
+
+        self.processor = AutoProcessor.from_pretrained(
+            self.config.model_name,
+            trust_remote_code=self.config.trust_remote_code,
+            use_fast=self.config.use_fast_processor,
+        )
+        if hasattr(self.processor, "tokenizer") and self.processor.tokenizer is not None:
+            self.processor.tokenizer.padding_side = "left"
+            if self.processor.tokenizer.pad_token is None and hasattr(self.processor.tokenizer, "eos_token"):
+                self.processor.tokenizer.pad_token = self.processor.tokenizer.eos_token
+
+        self.torch_dtype = _resolve_dtype(self.config.dtype)
+        self.quant_config = _build_quant_config(self.config, self.torch_dtype)
+        if self.quant_config is None and self.config.load_in_4bit:
+            raise RuntimeError("4-bit quantization requested but quantization_config could not be constructed.")
+        print(f">> Quantization config: {self.quant_config}", file=sys.stderr)
+
+        if attn_backend == "flash_attention_2" and not _flash_attn_supported():
+            raise ValueError("flash_attention_2 backend requested but not supported on this GPU (requires Ampere or newer).")
+
+        attn_impl = _resolve_attn_implementation(attn_backend)
+
+        model_kwargs = dict(
+            trust_remote_code=self.config.trust_remote_code,
+            device_map=self.config.device_map,
+            low_cpu_mem_usage=True,
+            attn_implementation=attn_impl,
+        )
+        max_memory_dict = _build_max_memory_dict(self.max_memory)
+        if max_memory_dict is not None:
+            model_kwargs["max_memory"] = max_memory_dict
+            print(f">> Using max_memory map: {max_memory_dict}", file=sys.stderr)
+
+        self.offload_dir.mkdir(parents=True, exist_ok=True)
+        model_kwargs["offload_folder"] = str(self.offload_dir)
+        print(f">> Offloading activations to: {self.offload_dir}", file=sys.stderr)
+
+        if self.quant_config is not None:
+            model_kwargs["quantization_config"] = self.quant_config
+            print(">> 4-bit/8-bit quantization active.", file=sys.stderr)
+        else:
+            model_kwargs["torch_dtype"] = self.torch_dtype
+
+        torch.cuda.empty_cache()
+        self.model = AutoModelForImageTextToText.from_pretrained(
+            self.config.model_name,
+            **model_kwargs,
+        )
+        print(f">> Model loaded on device(s): {self.model.device}", file=sys.stderr)
+        if hasattr(self.model, "hf_device_map"):
+            print(f">> hf_device_map: {self.model.hf_device_map}", file=sys.stderr)
+
+        self.model.eval()
+        if hasattr(self.model, "generation_config"):
+            self.model.generation_config.use_cache = self.config.use_cache
+            print(f">> Generation cache enabled: {self.config.use_cache}", file=sys.stderr)
+
+    def generate(
+        self,
+        image_paths: List[Path],
+        prompt: str,
+        batch_size: int,
+        output_dir: Path,
+        quiet: bool,
+        max_edge: Optional[int],
+        on_result: Optional[Callable[[Path, str], None]] = None,
+    ) -> Dict[Path, str]:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        progress = tqdm(total=len(image_paths), desc="Images", unit="img") if not quiet else None
+
+        effective_batch = max(1, batch_size)
+        if not self._effective_batch_logged:
+            if not quiet:
+                print(f">> Effective batch size: {effective_batch}", file=sys.stderr)
+            self._effective_batch_logged = True
+
+        results: Dict[Path, str] = {}
+        idx = 0
+        total_paths = len(image_paths)
+        processed_images = 0
+        start_time = time.perf_counter()
+        while idx < total_paths:
+            current_batch = min(effective_batch, total_paths - idx)
+            while current_batch >= 1:
+                batch_paths = image_paths[idx : idx + current_batch]
+                images = _load_images(batch_paths, max_edge)
+                messages_batch = [_prepare_messages(prompt, image) for image in images]
+
+                chat_prompts = [
+                    self.processor.apply_chat_template(
+                        messages,
+                        tokenize=False,
+                        add_generation_prompt=True,
+                    )
+                    for messages in messages_batch
+                ]
+
+                inputs = self.processor(
+                    text=chat_prompts,
+                    images=images,
+                    padding=True,
+                    return_tensors="pt",
+                )
+                device_inputs = {}
+                for key, value in inputs.items():
+                    if torch.is_floating_point(value):
+                        device_inputs[key] = value.to(self.model.device, dtype=self.torch_dtype, non_blocking=True)
+                    else:
+                        device_inputs[key] = value.to(self.model.device)
+
+                try:
+                    with torch.no_grad():
+                        generated_ids = self.model.generate(
+                            **device_inputs,
+                            max_new_tokens=self.config.max_new_tokens,
+                            temperature=self.config.temperature,
+                            top_p=self.config.top_p,
+                        )
+                    input_lengths = device_inputs["attention_mask"].sum(dim=-1).tolist()
+                    decoded_sequences = []
+                    for seq, in_len in zip(generated_ids, input_lengths):
+                        decoded_sequences.append(seq[in_len:])
+                    decoded = self.processor.batch_decode(decoded_sequences, skip_special_tokens=True)
+
+                    for path, text in zip(batch_paths, decoded):
+                        cleaned = text.strip()
+                        results[path] = cleaned
+                        if on_result is not None:
+                            on_result(path, cleaned)
+                        record = {"image": str(path), "icon_names": cleaned}
+                        output_path = output_dir / path.with_suffix(".json").name
+                        with output_path.open("w", encoding="utf-8") as handle:
+                            json.dump(record, handle, ensure_ascii=False, indent=2)
+                            handle.write("\n")
+                        if progress is not None:
+                            progress.update(1)
+                            processed_images += 1
+                            if processed_images > 0:
+                                elapsed = time.perf_counter() - start_time
+                                seconds_per_image = elapsed / processed_images
+                                images_per_minute = 60.0 / seconds_per_image if seconds_per_image > 0 else 0.0
+                                progress.set_postfix(
+                                    {
+                                        "avg_s_per_image": f"{seconds_per_image:.1f}",
+                                        "images_per_min": f"{images_per_minute:.1f}",
+                                    }
+                                )
+
+                    idx += current_batch
+                    break  # success
+
+                except RuntimeError as err:
+                    if "cuda out of memory" not in str(err).lower() or current_batch == 1:
+                        raise
+                    print(
+                        f">> CUDA OOM on batch size {current_batch}; retrying with smaller batch.",
+                        file=sys.stderr,
+                    )
+                    for device_idx in range(torch.cuda.device_count()):
+                        stats = torch.cuda.memory_stats(device_idx)
+                        allocated = stats["allocated_bytes.all.current"] / (1024**3)
+                        reserved = stats["reserved_bytes.all.current"] / (1024**3)
+                        print(
+                            f">> GPU {device_idx}: allocated {allocated:.2f} GiB, reserved {reserved:.2f} GiB",
+                            file=sys.stderr,
+                        )
+                    current_batch = max(1, current_batch // 2)
+                    torch.cuda.empty_cache()
+                    continue
+
+        if progress is not None:
+            progress.close()
+        return results
+
+
 def generate_icon_names(
     image_paths: List[Path],
     config: GenerationConfig,
@@ -316,178 +519,22 @@ def generate_icon_names(
     offload_dir: Optional[Path] = None,
     on_result: Optional[Callable[[Path, str], None]] = None,
 ) -> Dict[Path, str]:
-    _auto_enable_4bit(config)
-
-    if torch.cuda.is_available():
-        print(f">> CUDA devices: {torch.cuda.device_count()}", file=sys.stderr)
-        for idx in range(torch.cuda.device_count()):
-            props = torch.cuda.get_device_properties(idx)
-            print(
-                f">> GPU {idx}: {props.name}, total {props.total_memory / (1024**3):.1f} GiB",
-                file=sys.stderr,
-            )
-    else:
-        print(">> No CUDA devices detected; running on CPU.", file=sys.stderr)
-
-    processor = AutoProcessor.from_pretrained(
-        config.model_name,
-        trust_remote_code=config.trust_remote_code,
-        use_fast=config.use_fast_processor,
+    runner = IconNameGeneratorRunner(
+        config=config,
+        attn_backend=attn_backend,
+        max_memory=max_memory,
+        offload_dir=offload_dir,
+        quiet=quiet,
     )
-    if hasattr(processor, "tokenizer") and processor.tokenizer is not None:
-        processor.tokenizer.padding_side = "left"
-        if processor.tokenizer.pad_token is None and hasattr(processor.tokenizer, "eos_token"):
-            processor.tokenizer.pad_token = processor.tokenizer.eos_token
-    torch_dtype = _resolve_dtype(config.dtype)
-    quant_config = _build_quant_config(config, torch_dtype)
-    if quant_config is None and config.load_in_4bit:
-        raise RuntimeError("4-bit quantization requested but quantization_config could not be constructed.")
-    print(f">> Quantization config: {quant_config}", file=sys.stderr)
-
-    if attn_backend == "flash_attention_2" and not _flash_attn_supported():
-        raise ValueError("flash_attention_2 backend requested but not supported on this GPU (requires Ampere or newer).")
-
-    attn_impl = _resolve_attn_implementation(attn_backend)
-
-    model_kwargs = dict(
-        trust_remote_code=config.trust_remote_code,
-        device_map=config.device_map,
-        low_cpu_mem_usage=True,
-        attn_implementation=attn_impl,
+    return runner.generate(
+        image_paths=image_paths,
+        prompt=prompt,
+        batch_size=batch_size,
+        output_dir=output_dir,
+        quiet=quiet,
+        max_edge=max_edge,
+        on_result=on_result,
     )
-    max_memory_dict = _build_max_memory_dict(max_memory)
-    if max_memory_dict is not None:
-        model_kwargs["max_memory"] = max_memory_dict
-        print(f">> Using max_memory map: {max_memory_dict}", file=sys.stderr)
-    if offload_dir is None:
-        offload_dir = Path(".offload")
-    offload_dir.mkdir(parents=True, exist_ok=True)
-    model_kwargs["offload_folder"] = str(offload_dir)
-    print(f">> Offloading activations to: {offload_dir}", file=sys.stderr)
-
-    if quant_config is not None:
-        model_kwargs["quantization_config"] = quant_config
-        print(">> 4-bit/8-bit quantization active.", file=sys.stderr)
-    else:
-        model_kwargs["torch_dtype"] = torch_dtype
-
-    torch.cuda.empty_cache()
-    model = AutoModelForImageTextToText.from_pretrained(
-        config.model_name,
-        **model_kwargs,
-    )
-    print(f">> Model loaded on device(s): {model.device}", file=sys.stderr)
-    if hasattr(model, "hf_device_map"):
-        print(f">> hf_device_map: {model.hf_device_map}", file=sys.stderr)
-
-    model.eval()
-    if hasattr(model, "generation_config"):
-        model.generation_config.use_cache = config.use_cache
-        print(f">> Generation cache enabled: {config.use_cache}", file=sys.stderr)
-
-    output_dir.mkdir(parents=True, exist_ok=True)
-    progress = tqdm(total=len(image_paths), desc="Images", unit="img") if not quiet else None
-
-    effective_batch = max(1, batch_size)
-    print(f">> Effective batch size: {effective_batch}", file=sys.stderr)
-
-    results: Dict[Path, str] = {}
-    idx = 0
-    total_paths = len(image_paths)
-    processed_images = 0
-    start_time = time.perf_counter()
-    while idx < total_paths:
-        current_batch = min(effective_batch, total_paths - idx)
-        while current_batch >= 1:
-            batch_paths = image_paths[idx : idx + current_batch]
-            images = _load_images(batch_paths, max_edge)
-            messages_batch = [_prepare_messages(prompt, image) for image in images]
-
-            chat_prompts = [
-                processor.apply_chat_template(
-                    messages,
-                    tokenize=False,
-                    add_generation_prompt=True,
-                )
-                for messages in messages_batch
-            ]
-
-            inputs = processor(
-                text=chat_prompts,
-                images=images,
-                padding=True,
-                return_tensors="pt",
-            )
-            device_inputs = {}
-            for key, value in inputs.items():
-                if torch.is_floating_point(value):
-                    device_inputs[key] = value.to(model.device, dtype=torch_dtype, non_blocking=True)
-                else:
-                    device_inputs[key] = value.to(model.device)
-
-            try:
-                with torch.no_grad():
-                    generated_ids = model.generate(
-                        **device_inputs,
-                        max_new_tokens=config.max_new_tokens,
-                        temperature=config.temperature,
-                        top_p=config.top_p,
-                    )
-                input_lengths = device_inputs["attention_mask"].sum(dim=-1).tolist()
-                decoded_sequences = []
-                for seq, in_len in zip(generated_ids, input_lengths):
-                    decoded_sequences.append(seq[in_len:])
-                decoded = processor.batch_decode(decoded_sequences, skip_special_tokens=True)
-
-                for path, text in zip(batch_paths, decoded):
-                    cleaned = text.strip()
-                    results[path] = cleaned
-                    if on_result is not None:
-                        on_result(path, cleaned)
-                    record = {"image": str(path), "icon_names": cleaned}
-                    output_path = output_dir / path.with_suffix(".json").name
-                    with output_path.open("w", encoding="utf-8") as handle:
-                        json.dump(record, handle, ensure_ascii=False, indent=2)
-                        handle.write("\n")
-                    if progress is not None:
-                        progress.update(1)
-                        processed_images += 1
-                        if processed_images > 0:
-                            elapsed = time.perf_counter() - start_time
-                            seconds_per_image = elapsed / processed_images
-                            images_per_minute = 60.0 / seconds_per_image if seconds_per_image > 0 else 0.0
-                            progress.set_postfix(
-                                {
-                                    "avg_s_per_image": f"{seconds_per_image:.1f}",
-                                    "images_per_min": f"{images_per_minute:.1f}",
-                                }
-                            )
-
-                idx += current_batch
-                break  # success
-
-            except RuntimeError as err:
-                if "cuda out of memory" not in str(err).lower() or current_batch == 1:
-                    raise
-                print(
-                    f">> CUDA OOM on batch size {current_batch}; retrying with smaller batch.",
-                    file=sys.stderr,
-                )
-                for device_idx in range(torch.cuda.device_count()):
-                    stats = torch.cuda.memory_stats(device_idx)
-                    allocated = stats["allocated_bytes.all.current"] / (1024**3)
-                    reserved = stats["reserved_bytes.all.current"] / (1024**3)
-                    print(
-                        f">> GPU {device_idx}: allocated {allocated:.2f} GiB, reserved {reserved:.2f} GiB",
-                        file=sys.stderr,
-                    )
-                current_batch = max(1, current_batch // 2)
-                torch.cuda.empty_cache()
-                continue
-
-    if progress is not None:
-        progress.close()
-    return results
 def _box_iou(a: np.ndarray, b: np.ndarray) -> float:
     x_left = max(a[0], b[0])
     y_top = max(a[1], b[1])
@@ -870,11 +917,24 @@ def run_pipeline(args: argparse.Namespace) -> None:
     if args.visualize:
         viz_dir.mkdir(parents=True, exist_ok=True)
 
-    overlay_paths: List[Path] = []
-    overlay_info: Dict[Path, Tuple[Path, List[Detection]]] = {}
-
+    overlay_created = False
     detection_bar = None if args.quiet else tqdm(total=len(images), desc="detect", unit="img")
 
+    qwen_config = GenerationConfig(
+        model_name=args.qwen_model,
+        dtype=args.qwen_dtype,
+        max_new_tokens=max(1, args.qwen_max_new_tokens),
+        temperature=args.qwen_temperature,
+        top_p=args.qwen_top_p,
+        device_map=args.qwen_device_map,
+        use_fast_processor=args.qwen_use_fast_processor,
+        load_in_8bit=args.qwen_load_in_8bit,
+        load_in_4bit=args.qwen_load_in_4bit,
+        use_cache=args.qwen_use_cache,
+    )
+    prompt = args.qwen_prompt or DEFAULT_PROMPT
+    max_memory_override = args.qwen_max_memory or _auto_max_memory_string()
+    runner: Optional[IconNameGeneratorRunner] = None
     for image_path in images:
         label_file = labels_dir / f"{image_path.stem}.json"
         if label_file.exists():
@@ -901,70 +961,48 @@ def run_pipeline(args: argparse.Namespace) -> None:
             continue
         overlay_path = overlay_dir / f"{image_path.stem}_overlay{image_path.suffix}"
         _draw_overlay(overlay_image, detections, overlay_path)
-        overlay_paths.append(overlay_path)
-        overlay_info[overlay_path] = (image_path, detections)
+        overlay_created = True
+
+        if runner is None:
+            _configure_attention(args.qwen_attn_backend)
+            runner = IconNameGeneratorRunner(
+                config=qwen_config,
+                attn_backend=args.qwen_attn_backend,
+                max_memory=max_memory_override,
+                offload_dir=Path(args.qwen_offload_dir) if args.qwen_offload_dir else None,
+                quiet=args.quiet,
+            )
+
+        def handle_single(_: Path, raw_text: str) -> None:
+            id_to_label = _parse_qwen_output(raw_text or "")
+            _write_label_records(detections, id_to_label, label_file)
+            if args.visualize and detections:
+                with Image.open(image_path) as img:
+                    viz_image = img.copy()
+                    name_map = {det.detection_id: id_to_label.get(det.detection_id, "") for det in detections}
+                    _draw_visualization(
+                        viz_image,
+                        detections,
+                        name_map,
+                        viz_dir / f"{image_path.stem}_viz{image_path.suffix}",
+                    )
+
+        runner.generate(
+            image_paths=[overlay_path],
+            prompt=prompt,
+            batch_size=1,
+            output_dir=qwen_output_dir,
+            quiet=True,
+            max_edge=args.qwen_max_edge,
+            on_result=handle_single,
+        )
 
     if detection_bar is not None:
         detection_bar.close()
 
-    if not overlay_info:
+    if not overlay_created:
         print("No icons detected across input images.", file=sys.stderr)
         return
-
-
-    _configure_attention(args.qwen_attn_backend)
-
-    qwen_config = GenerationConfig(
-        model_name=args.qwen_model,
-        dtype=args.qwen_dtype,
-        max_new_tokens=max(1, args.qwen_max_new_tokens),
-        temperature=args.qwen_temperature,
-        top_p=args.qwen_top_p,
-        device_map=args.qwen_device_map,
-        use_fast_processor=args.qwen_use_fast_processor,
-        load_in_8bit=args.qwen_load_in_8bit,
-        load_in_4bit=args.qwen_load_in_4bit,
-        use_cache=args.qwen_use_cache,
-    )
-    print(
-        file=sys.stderr,
-    )
-
-    max_memory_override = args.qwen_max_memory or _auto_max_memory_string()
-    processed_overlays: Set[Path] = set()
-
-    def handle_result(overlay_path: Path, raw_text: str) -> None:
-        info = overlay_info.get(overlay_path)
-        if info is None:
-            return
-        image_path, detections = info
-        id_to_label = _parse_qwen_output(raw_text or "")
-        label_file = labels_dir / f"{image_path.stem}.json"
-        _write_label_records(detections, id_to_label, label_file)
-        if args.visualize and detections:
-            with Image.open(image_path) as img:
-                viz_image = img.copy()
-                name_map = {det.detection_id: id_to_label.get(det.detection_id, "") for det in detections}
-                _draw_visualization(viz_image, detections, name_map, viz_dir / f"{image_path.stem}_viz{image_path.suffix}")
-        processed_overlays.add(overlay_path)
-    qwen_outputs = generate_icon_names(
-        image_paths=overlay_paths,
-        config=qwen_config,
-        prompt=args.qwen_prompt or DEFAULT_PROMPT,
-        batch_size=max(1, args.qwen_batch_size),
-        output_dir=qwen_output_dir,
-        quiet=args.quiet,
-        max_edge=args.qwen_max_edge,
-        attn_backend=args.qwen_attn_backend,
-        max_memory=max_memory_override,
-        offload_dir=Path(args.qwen_offload_dir) if args.qwen_offload_dir else None,
-        on_result=handle_result,
-    )
-
-    remaining = [path for path in overlay_info if path not in processed_overlays]
-    for overlay_path in remaining:
-        raw_text = qwen_outputs.get(overlay_path, "")
-        handle_result(overlay_path, raw_text)
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Detect icons and build JSON label files using Qwen3 VL.")
