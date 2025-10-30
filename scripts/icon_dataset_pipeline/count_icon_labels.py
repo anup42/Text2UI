@@ -27,6 +27,12 @@ def load_labels(path: Path) -> List[str]:
         with path.open("r", encoding="utf-8") as handle:
             data = json.load(handle)
     except (json.JSONDecodeError, OSError):
+        try:
+            raw_text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            print(f"Failed to read JSON file {path}: {exc}")
+            return []
+        print(f"Failed to parse JSON file {path}; raw contents:\n{raw_text}")
         return []
 
     if isinstance(data, list):
@@ -62,7 +68,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Enable case-sensitive matching for the regular expression (default is case-insensitive).",
     )
-    parser.add_argument("--output-file", default=None, help="Optional path to write the frequency table.")
+    parser.add_argument("--output-file", required=True, help="Path to write the frequency table.")
     return parser
 
 
@@ -88,28 +94,19 @@ def main() -> None:
             if pattern.search(name):
                 counts[name] += 1
 
+    output_path = Path(args.output_file)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
     if not counts:
-        message = "No labels matched the given pattern."
-        if args.output_file:
-            output_path = Path(args.output_file)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            with output_path.open("w", encoding="utf-8") as handle:
-                handle.write(message + "\n")
-        print(message)
+        with output_path.open("w", encoding="utf-8") as handle:
+            handle.write("No labels matched the given pattern.\n")
         return
 
     top_n = max(1, args.top)
     lines = [f"{name}: {count}" for name, count in counts.most_common(top_n)]
-
-    if args.output_file:
-        output_path = Path(args.output_file)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with output_path.open("w", encoding="utf-8") as handle:
-            for line in lines:
-                handle.write(line + "\n")
-
-    for line in lines:
-        print(line)
+    with output_path.open("w", encoding="utf-8") as handle:
+        for line in lines:
+            handle.write(line + "\n")
 
 
 if __name__ == "__main__":
