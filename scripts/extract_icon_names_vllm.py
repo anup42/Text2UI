@@ -50,6 +50,7 @@ class VLLMConfig:
     max_model_len: Optional[int] = None
     use_xformers: bool = False
     config_overrides: Optional[str] = None
+    attention_backend: Optional[str] = None
 
 
 def _list_images(images_dir: Optional[Path], image_paths: List[Path]) -> List[Path]:
@@ -122,6 +123,45 @@ def generate_icon_names(
 ) -> None:
     os.environ["VLLM_USE_XFORMERS"] = "1" if config.use_xformers else "0"
 
+    def _resolve_attention_backend(requested_backend: Optional[str]) -> Optional[str]:
+        """Pick a safe attention backend for vLLM.
+
+        Some recent Qwen releases default to the experimental "SFPA" backend,
+        which currently requires Hopper-class GPUs. When running on cards such
+        as the RTX 6000 Ada (SM89) this results in the error
+        ``ValueError: invalid value 'SFPA'`` during model initialisation. If the
+        caller did not explicitly request a backend, fall back to the more
+        broadly supported FlashInfer backend in those cases.
+        """
+
+        if requested_backend and requested_backend.lower() != "auto":
+            return requested_backend
+
+        try:
+            import torch
+
+            if not torch.cuda.is_available():
+                return None
+
+            # SFPA is currently limited to Hopper (SM90+) GPUs. If we detect a
+            # device with a lower compute capability we default to FlashInfer.
+            supports_sfpa = True
+            for idx in range(torch.cuda.device_count()):
+                major, _minor = torch.cuda.get_device_capability(idx)
+                if major < 9:
+                    supports_sfpa = False
+                    break
+            if not supports_sfpa:
+                return "FLASHINFER"
+        except Exception:
+            warnings.warn(
+                "Could not inspect GPU capability; forcing vLLM attention backend "
+                "to FlashInfer to avoid SFPA incompatibilities."
+            )
+            return "FLASHINFER"
+
+        return None
+
     def _resolve_dtype(requested_dtype: str) -> str:
         if requested_dtype != "auto":
             return requested_dtype
@@ -153,6 +193,10 @@ def generate_icon_names(
             return "float16"
 
     resolved_dtype = _resolve_dtype(config.dtype)
+    resolved_attention_backend = _resolve_attention_backend(config.attention_backend)
+
+    if resolved_attention_backend and not os.environ.get("VLLM_ATTENTION_BACKEND"):
+        os.environ["VLLM_ATTENTION_BACKEND"] = resolved_attention_backend
 
     def _maybe_patch_config_file(config_path: Path, vocab_size: int) -> None:
         try:
@@ -317,6 +361,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--quiet", action="store_true", help="Suppress progress bar")
     parser.add_argument("--use-xformers", action="store_true", help="Enable xFormers attention kernels in vLLM")
     parser.add_argument("--config-overrides", default=None, help="String passed to vLLM config_overrides (e.g., 'vocab_size=151936')")
+    parser.add_argument(
+        "--attention-backend",
+        default="auto",
+        help=(
+            "Attention backend to use with vLLM (e.g., auto, FLASHINFER)."
+            " Leave as 'auto' to let the script pick a safe default for the"
+            " current GPU."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -337,6 +390,7 @@ def main() -> None:
         max_model_len=args.max_model_len,
         use_xformers=args.use_xformers,
         config_overrides=args.config_overrides,
+        attention_backend=args.attention_backend,
     )
 
     generate_icon_names(
