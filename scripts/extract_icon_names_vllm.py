@@ -123,6 +123,24 @@ def generate_icon_names(
 ) -> None:
     os.environ["VLLM_USE_XFORMERS"] = "1" if config.use_xformers else "0"
 
+    def _normalise_attention_backend(
+        name: Optional[str],
+    ) -> Optional[str]:
+        """Map common aliases to the canonical backend names expected by vLLM."""
+
+        if not name:
+            return None
+
+        lowered = name.strip().lower()
+        alias_map = {
+            "sdpa": "TORCH_SDPA",
+            "torch-sdpa": "TORCH_SDPA",
+            "torch_sdpa": "TORCH_SDPA",
+            "flash-infer": "FLASHINFER",
+            "flash_infer": "FLASHINFER",
+        }
+        return alias_map.get(lowered, name.strip())
+
     def _resolve_attention_backend(requested_backend: Optional[str]) -> Optional[str]:
         """Pick a safe attention backend for vLLM.
 
@@ -134,6 +152,7 @@ def generate_icon_names(
         broadly supported FlashInfer backend in those cases.
         """
 
+        requested_backend = _normalise_attention_backend(requested_backend)
         if requested_backend and requested_backend.lower() != "auto":
             return requested_backend
 
@@ -194,6 +213,15 @@ def generate_icon_names(
 
     resolved_dtype = _resolve_dtype(config.dtype)
     resolved_attention_backend = _resolve_attention_backend(config.attention_backend)
+
+    existing_backend = os.environ.get("VLLM_ATTENTION_BACKEND")
+    normalised_existing_backend = _normalise_attention_backend(existing_backend)
+    if (
+        existing_backend
+        and normalised_existing_backend
+        and normalised_existing_backend != existing_backend
+    ):
+        os.environ["VLLM_ATTENTION_BACKEND"] = normalised_existing_backend
 
     if resolved_attention_backend and not os.environ.get("VLLM_ATTENTION_BACKEND"):
         os.environ["VLLM_ATTENTION_BACKEND"] = resolved_attention_backend
